@@ -1,5 +1,6 @@
-What is the purpose of a conditional edge in a LangGraph workflow?
-It allows real-time communication between multiple LLMs within the same node
-• It defines custom input/output format for LLM prompts
-It merges multiple data streams into one unified schema
-It dynamically determines the next node to execute based on the current state
+What is the function of a RACI matrix in the governance of Agentic
+Al systems?
+To track F1 score changes across demographics.
+To test agents with synthetic dialogues before pilot deployment.
+To encrypt patient health information (PHI) across all systems.
+To clarify roles and responsibilities across the Al lifecycle.
