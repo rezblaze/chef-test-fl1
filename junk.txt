@@ -1,6 +1,5 @@
-What is the function of a RACI matrix in the governance of Agentic
-Al systems?
-To track F1 score changes across demographics.
-To test agents with synthetic dialogues before pilot deployment.
-To encrypt patient health information (PHI) across all systems.
-To clarify roles and responsibilities across the Al lifecycle.
+How should a CI/CD pipeline respond if a retrained billing agent shows subgroup disparity >5%?
+Halt the pipeline and require a manual override before continuing.
+Proceed with deployment and schedule fairness audit post-launch.
+Route the agent to Tier 1 monitoring protocols.
+Trigger retraining with additional data automatically.
