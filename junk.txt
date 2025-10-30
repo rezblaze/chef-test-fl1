@@ -1,5 +1,5 @@
-How can Pydantic be useful when working with LLM outputs?
-It tokenizes the input
-It validates and structures model outputs into predefined schemas
-It generates prompts for LLMs
-It formats responses as CSV
+What is the purpose of a conditional edge in a LangGraph workflow?
+It allows real-time communication between multiple LLMs within the same node
+• It defines custom input/output format for LLM prompts
+It merges multiple data streams into one unified schema
+It dynamically determines the next node to execute based on the current state
