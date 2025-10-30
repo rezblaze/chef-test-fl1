@@ -1,11 +1,5 @@
-What is the primary purpose of a Model Card in healthcare Al agents?
-
-To provide encryption keys for secure deployment.
-
-To determine the reimbursement rate for Al-based procedures.
-
-
-
-To log every action taken by the Al system in a tamper-evident way.
-
-To describe training data, intended uses, and known limitations of the Al agent.
+What is the purpose of a cross-functional Al Governance Council like UHG's AIRB in healthcare Al deployment?
+To automate CI/CD pipelines for all model updates.
+To manage sentiment analysis for chatbot responses.
+To approve Al initiatives and oversee risk-tiered deployment decisions.
+To encrypt all PHI data during transmission.
