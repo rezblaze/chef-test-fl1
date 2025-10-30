@@ -1,5 +1,5 @@
-Why are immutable logs and dataset versioning essential for agentic Al in healthcare?
-• They allow patients to delete their medical data after Al usage.
-• They prevent Al from accessing sensitive health information.
-• They help improve model accuracy during training.
-They enable auditable replay of Al decisions and support regulatory compliance like GDPR.
+How can Pydantic be useful when working with LLM outputs?
+It tokenizes the input
+It validates and structures model outputs into predefined schemas
+It generates prompts for LLMs
+It formats responses as CSV
