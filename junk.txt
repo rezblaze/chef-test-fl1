@@ -1,6 +1,11 @@
-Which class do you inherit from when creating a new data model
-using pydantic?
-DataModel
-TypedModel
-BaseModel
-BaseObject
+What is the primary purpose of a Model Card in healthcare Al agents?
+
+To provide encryption keys for secure deployment.
+
+To determine the reimbursement rate for Al-based procedures.
+
+
+
+To log every action taken by the Al system in a tamper-evident way.
+
+To describe training data, intended uses, and known limitations of the Al agent.
