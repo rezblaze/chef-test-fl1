@@ -1,5 +1,6 @@
-What is the primary purpose of using tools like SHAP and LIME in agentic Al applications?
-To calculate the model's accuracy on historical data.
-To anonymize personal health information in patient records.
-To generate interpretable explanations for individual Al decisions.
-To train generative models on counterfactual data.
+Which class do you inherit from when creating a new data model
+using pydantic?
+DataModel
+TypedModel
+BaseModel
+BaseObject
