@@ -1,5 +1,1098 @@
-In the context of continuous monitoring for healthcare Al agents, what does fairness drift refer to?
-A consistent rise in hallucination rates across model versions.
-• A sudden drop in STT confidence scores below operational thresholds.
-The emergence of biased outputs or performance discrepancies across demographics over time.
-Increased reliance on synthetic data in model training.
+The Capstone: Healthcare Insurance Claim Approval Agent 
+Project Outcomes 
+In this assignment, you will apply key skills gained during the Generative AI Track, including: 
+● Apply Generative AI techniques to solve complex real-world challenges ● Build domain-specific AI applications 
+for targeted business problems 
+● Apply Agentic AI techniques to complex, real-world business processes 
+● Build domain-specific Agentic AI applications that require specialized knowledge 
+● Implement and optimize ReAct and Tool-Use Agent architectures for decision-critical applications 
+Capstone 2 Instructions 
+4 | P a g e
+Project Overview 
+The Healthcare Insurance Claim Approval Agent capstone project challenges you to build a robust, intelligent 
+insurance claim validation system using cutting-edge Agentic AI techniques and frameworks such as LangChain and 
+LangGraph. 
+This project marks the culmination of your applied Agentic AI training and focuses on automating insurance claim 
+coverage determination in a domain where precision, compliance, and reliability are critical. 
+You will develop an AI-powered agent system that can: 
+• Interpret semi-structured patient health records along with submitted insurance claims 
+• Perform retrieval and reasoning with relevant insurance policy guidelines 
+• Automate the insurance claim coverage decision-making process by generating contextually accurate and 
+well-justified outcomes, including auto-approvals or routing for manual review 
+By bridging the gap between raw clinical and claim data and actionable insurance outcomes, this project 
+demonstrates the practical, real-world impact of Agentic AI in healthcare insurance administration. 
+The Challenge 
+Modern healthcare insurance claim processing faces significant challenges in efficiency, accuracy, and scalability. The 
+large volume and complexity of medical claims, each requiring nuanced interpretation of patient context and 
+detailed policy rules, make manual review methods both time-consuming and inconsistent. 
+This capstone addresses these challenges by enabling you to build an intelligent system that can: 
+Capstone 2 Instructions 
+5 | P a g e
+• Parse and summarize semi-structured patient records and claim details using domain knowledge 
+• Retrieve and evaluate relevant insurance policy guidelines for specific claims 
+• Determine claim coverage by matching claim details to policy rules and requirements (diagnoses, 
+procedures, age, gender and preauthorization)
+• Generate clear, contextually accurate coverage decisions and provide reasoning for approvals or further 
+routing for manual reviews 
+By completing this capstone, you will demonstrate your ability to design and implement end-to-end Agentic AI 
+systems that automate high-stakes decision-making in healthcare insurance. This will help deliver both operational 
+efficiency and consistent, policy-compliant outcomes. 
+The Assignment 
+Your goal is to create an Advanced Agentic AI Claim Coverage Validation System. 
+This intelligent system would be able to: 
+• Parse and summarize semi-structured patient records and claim details using domain knowledge 
+• Retrieve and evaluate relevant insurance policy guidelines for specific claims 
+• Determine claim coverage by matching claim details to policy rules and requirements (diagnoses, 
+procedures, age, gender and preauthorization)
+• Generate clear, contextually accurate coverage decisions and provide reasoning for approvals or further 
+routing for manual reviews 
+Additional Resources 
+Capstone 2 Instructions 
+6 | P a g e
+The Project Submission Guide Video provides and overview of the capstone video, walks you 
+through the process for submitting your capstone, and highlights common mistakes learners 
+make. 
+The Top Submission Issues document outlines common mistakes learners make when 
+submitting their capstone and provides guidance about how to avoid these mistakes. 
+If you would like to connect with peers who are also working through this capstone to ask 
+questions or seek help with troubleshooting, you can join the Capstone 2 Teams channel.
+Solution Requirements & Specifications 
+The Agent Architecture Workflow 
+The workflow in the following figure shows how your ReAct Agent should function by leveraging a single agent, 
+three tools, and a system instruction prompt. 
+• The agent reads patient records and policy documents, then uses summarize_patient_record and 
+summarize_policy_guideline tools to generate structured summaries. 
+• It then runs check_claim_coverage tool to evaluate whether the claimed procedure meets the coverage 
+criteria. 
+• The agent produces a final decision - either APPROVE or ROUTE FOR REVIEW, along with a concise 
+reason. 
+• You can use the records from validation_records.json to develop, evaluate, and refine your agentic 
+system. 
+Capstone 2 Instructions 
+7 | P a g e
+• Once finalized, run your agentic system on the records from test_records.json to generate the final 
+outputs, which must be saved in submission.csv. 
+Capstone 2 Instructions 
+8 | P a g e
+Capstone 2 Instructions 
+9 | P a g e
+The Core System Architecture 
+The Healthcare Insurance Claim Approval System should be implemented as a Tool-Use ReAct Agent (Single agent 
+with three tools) with these key components. 
+Capstone 2 Instructions 
+10 | P a g e
+Requirement Specifications Notes 
+Age 
+Computation 
+Age is one of the most important eligibility criteria in 
+healthcare insurance claims. Policies frequently specify an 
+allowable age range for specific procedures, and claims that 
+fall outside this range must be routed for manual review. To 
+ensure accuracy, the patient’s age should be calculated 
+using the following fields from the patient record: 
+date_of_birth (e.g., "1982-03-15") date_of_service
+(e.g., "2025-05-03") 
+The age is computed by subtracting the birth year from the 
+service year, and adjusting the result if the patient has not 
+yet had their birthday in the service year. This calculation 
+ensures the age reflects the last fully completed year, which 
+is standard practice in healthcare. 
+For example:
+If the date of birth is March 15, 1982 and the date of service 
+is May 3, 2025, the computed age is 43. 
+You can compute the age in a preprocessing step using 
+Python and add it directly to each patient record as a 
+keyvalue pair with "age" as the key. For example: 
+"age": 43
+Alternatively, you may choose 
+to compute the age within one 
+of the agent tools, such as 
+summarize_patient_record, 
+using LLM reasoning. 
+However, it is important to 
+note that large language 
+models have limitations when 
+it comes to performing precise 
+mathematical calculations. 
+Inaccurate age computation 
+can lead to incorrect claim 
+outcomes. The computed age 
+will be used later in the agent's 
+reasoning process to 
+determine whether the 
+patient's age satisfies the 
+policy's claim coverage criteria. 
+Capstone 2 Instructions 
+11 | P a g e
+The Tools for the Agent (3 tools)
+Requirement Specifications Notes 
+Summarizing 
+Patient 
+Health 
+Record with 
+Insurance 
+Claim 
+summarize_patient_record(record_str)
+• This tool is responsible for extracting a 
+structured summary of a patient’s insurance 
+claim record using LLM reasoning. It accepts a 
+raw patient record (as a JSON string or plain 
+string) and returns a well-structured 
+summary report that will later be used for 
+claim coverage evaluation. 
+Key Expectations: The summary generated 
+by this tool should be clearly formatted and 
+include the following seven labeled sections, 
+in the specified order:
+• Patient Demographics: Include: name, 
+gender, and age 
+(Note: age can be precomputed using Python 
+or LLM reasoning and included in the input 
+record as "age")
+• Insurance Policy ID
+• Diagnoses and Descriptions: Include 
+ICD10 codes and their mapped 
+descriptions. 
+• Procedures and Descriptions: Include 
+CPT codes and their mapped descriptions. 
+• Preauthorization Status: Clearly mention 
+if preauthorization was required and 
+whether it was obtained.
+• Billed Amount (in USD) 
+• Date of Service 
+Capstone 2 Instructions 
+12 | P a g e
+Additional Notes: 
+• You should use the provided ICD-10 and CPT code mappings (from reference_codes.json) to enrich the output 
+with human-readable descriptions of medical codes. These mappings can be passed into the tool and 
+referenced through LLM reasoning to generate clearer, more informative summaries. 
+• The summary text should follow a bullet-point format or clearly separated labeled sections, making it easy for 
+downstream tools (and the agent) to reason over the content. 
+• Avoid adding any decision-making logic here. This tool is focused only on creating a structured summary report, 
+not determining claim approval. 
+This summary text acts as a standardized input for the claim coverage validation tool that follows. 
+Capstone 2 Instructions 
+13 | P a g e
+Summarizing 
+Insurance 
+Policy Details
+summarize_policy_guideline(policy_id) 
+• This tool is responsible for generating a 
+structured summary of the insurance policy 
+corresponding to the given policy_id.
+• It retrieves the matching policy document 
+from the dataset and returns a wellformatted summary that outlines the specific 
+claim coverage rules for each procedure 
+under that policy. This summary will later be 
+used to determine whether a patient’s claim 
+satisfies the policy’s coverage conditions.
+Key Expectations: The summary generated 
+by this tool should be clearly formatted and 
+include the following clearly labeled sections, 
+in order:
+• Policy Details: Include: policy ID and 
+plan name 
+• Covered Procedures: For each covered 
+procedure listed in the policy, include the 
+following sub-points:
+o Procedure Code and Description 
+(using 
+CPT code mappings) o Covered 
+Diagnoses and Descriptions 
+(using ICD-10 code mappings) 
+o Gender Restriction o Age Range 
+o Preauthorization Requirement o
+Notes on Coverage (if any) 
+Each procedure should be presented as a 
+separate entry under the "Covered 
+Procedures" section, with the required 
+subpoints clearly listed. 
+Capstone 2 Instructions 
+14 | P a g e
+Additional Notes:
+• You should use the provided ICD-10 and CPT code mappings (from reference_codes.json) to enrich the 
+output with human-readable descriptions of medical and procedure codes. These mappings can be passed into 
+the tool and referenced through LLM reasoning to produce a more informative summary. 
+• The summary should follow a consistent bullet-point format or clearly separated labeled sections, which ensure 
+that the agent and downstream tools can interpret the policy data accurately. 
+• Avoid adding any approval or decision-making logic here. This tool is focused only on presenting the coverage 
+rules as stated in the policy document. 
+This summary text acts as a standardized input for the claim coverage validation tool that follows. 
+Capstone 2 Instructions 
+15 | P a g e
+Validate 
+Insurance 
+Claim 
+Coverage 
+check_claim_coverage(record_summary, 
+policy_summary) 
+• This tool determines whether the procedures 
+claimed by a patient are covered under their 
+insurance policy. It takes as input the 
+structured summary of the patient record 
+along with the corresponding policy summary 
+generated by the earlier tools. 
+• The tool uses LLM-based reasoning to 
+evaluate each claimed procedure against the 
+applicable policy conditions and returns a 
+coverage eligibility decision, either approval or 
+routing for manual review by a human 
+specialist.
+Coverage Evaluation Criteria: A procedure 
+should be approved only if all the following 
+conditions are met:
+• The patient's diagnosis code(s) match the 
+policy-covered diagnoses for the claimed 
+procedure.
+• The procedure code is explicitly listed in the 
+policy, and all associated conditions are 
+satisfied.
+• The patient's age falls within the policy's 
+defined age range (inclusive of the lower 
+bound, exclusive of the upper bound).
+• The patient's gender matches the policy’s 
+requirement for that procedure.
+• If preauthorization is required by the policy, it 
+must have been obtained.
+Only procedures and diagnoses explicitly listed 
+in the patient record should be evaluated. For 
+simplicity we have kept one procedure per 
+patient.
+Expected Output Format: The tool's response should include the following three sections: 
+• Coverage Review: Step-by-step analysis for the claimed procedure, detailing the checks performed. (each 
+patient has only one procedure) 
+• Summary of Findings: Summary of which coverage requirements were met or not met. 
+• Final Decision: For each procedure for the claim, return either "APPROVE" or "ROUTE FOR REVIEW" with a brief 
+explanation of the reasoning behind it. 
+Capstone 2 Instructions 
+16 | P a g e
+The output of this tool will be used by the agent, through its system instruction prompt, to generate the final 
+decision. 
+Agent System Instruction Prompt
+Agent System Instruction 
+Prompt 
+• The system instruction prompt defines the agent’s overall reasoning workflow 
+and enforces the use of specific tools in a structured sequence. 
+• At a minimum, the prompt should clearly list the three tools the agent is allowed 
+to use 
+• Specify the exact sequence in which these tools must be used 
+• Define the required final output format, which should have the following: 
+o A single-line Decision: either APPROVE or ROUTE FOR REVIEW o A 
+concise Reason: that refers to specific coverage rules and policy 
+conditions which led to the above decision by the agent 
+You are expected to frame the prompt to enforce this logic. The quality and clarity 
+of the system prompt directly affect the correctness and consistency of the agent's 
+outputs. 
+The ReAct Agent
+Capstone 2 Instructions 
+17 | P a g e
+The ReAct Agent • You are expected to build a ReAct-style single agent that uses exactly three 
+tools to process insurance claim approvals. 
+• You can implement the agent in one of two ways: o Option 1: Build the 
+agent from scratch using LangGraph, ensuring it is configured as a single 
+agent with three tools and system prompt. 
+o Option 2: Use the built-in create_react_agent function from 
+LangGraph, ensuring it is configured as a single agent with three 
+tools and system prompt. 
+In both cases, the agent should follow the defined tool usage sequence and return 
+decisions in a consistent format. 
+Technical Requirements
+Learners are recommended to leverage the following tools and models to ensure consistency in responses to the 
+extent possible: 
+Requirement Description 
+Large Language Models (LLM) OpenAI LLM API (gpt-4.1-mini) *
+Development Framework Orchestration frameworks includes LangChain and LangGraph for ReAct 
+agent development 
+*If you started your capstone project using gpt-4o-mini you can continue using gpt-4o-mini through December 2025. After that time, the model 
+will be deprecated.
+Capstone 2 Instructions 
+18 | P a g e
+Dataset Details
+To build and test your Insurance Claim Approval Agent, the following datasets are provided as standard JSON & CSV 
+files: 
+Data File Name Description/Details Additional Information 
+insurance_policies.jso 
+n 
+o This file contains the insurance policy details, 
+including coverage rules, diagnosis-procedure 
+mappings, age ranges, gender eligibility, 
+preauthorization requirements, and additional 
+notes as depicted in a sample policy record in the 
+adjoining column. 
+o This data is used in the following tools: 
+o summarize_policy_guideline(policy_id
+): Retrieves the policy associated with a 
+given ID and generates a structured 
+summary of its contents. This includes the 
+procedures covered and their associated 
+requirements, enriched with CPT and ICD10 
+descriptions. 
+{
+'policy_id': 'POL1007',
+'plan_name': 'Essential Care 
+Plus',
+'covered_procedures': [
+{
+'procedure_code': '85025', 
+'covered_diagnoses': 
+['N39.0'],
+ 'age_range': [28, 79],
+ 'gender': 'Any',
+ 
+'requires_preauthorization
+': True,
+ 'notes': 'Complete blood 
+count (CBC) covered for N39.0 
+cases.'},
+{
+'procedure_code': '93010', 
+'covered_diagnoses': 
+['N39.0'],
+ 'age_range': [1, 70],
+ 'gender': 'Male',
+ 
+'requires_preauthorization
+': False,
+ 'notes': 'ECG interpretation 
+only covered for N39.0 cases.'
+}
+]
+} 
+Capstone 2 Instructions 
+19 | P a g e
+reference_codes.json 
+o This dictionary provides human-readable 
+descriptions for: 
+{
+ '93000': 'Electrocardiogram, 
+routine ECG with at least 12 
+leads; with interpretation and 
+report',
+o CPT (procedure) codes o ICD-10 
+(diagnosis) codes 
+o Use these mappings to enrich the 
+output of your patient and policy 
+summary tools. The mappings can 
+be passed to the tools and 
+referenced using LLM reasoning to 
+improve clarity and explainability. 
+ '99213': 'Office or 
+outpatient visit for an 
+established patient, typically 
+20–29 minutes',
+..., ...
+}
+Capstone 2 Instructions 
+20 | P a g e
+validation_records.jso 
+n 
+o This file contains 10 sample patient claim records. 
+o Each record includes the patient’s demographics, 
+diagnosis codes, procedure codes, 
+preauthorization status, billed amount, and other 
+relevant metadata. For simplicity, the patient and 
+claim data have been combined into a single 
+record per patient as depicted in a sample patient 
+record as shown in the adjoining column. 
+o These records should be used during 
+development to experiment and evaluate and 
+make sure that your agent is functioning correctly, 
+before proceeding to the test dataset. 
+o You are expected to compute the patient's age 
+using the date_of_birth and date_of_service
+fields and add it as an "age" key in each record to 
+ensure correct agent reasoning. 
+o The corresponding human reference responses 
+are available in 
+validation_reference_results.csv
+{
+'patient_id': 'P002',
+'name': 'Robert Jones',
+'date_of_birth': '1982-03-
+15',
+'gender': 'Female',
+'insurance_policy_id': 
+'POL1007',
+'diagnosis_codes': 
+['N39.0'],
+'procedure_codes': 
+['85025'],
+'date_of_service': '2025-
+05-03',
+'provider_id': 'PRV002',
+'provider_specialty': 
+'Neurology',
+'location': 'Los Angeles, 
+CA',
+'billed_amount': 3500.0,
+'preauthorization_required
+': True,
+'preauthorization_obtained
+': True,
+'age': 43 # you will need 
+to compute this field in your 
+code } 
+Capstone 2 Instructions 
+21 | P a g e
+o These examples are provided to help you assess 
+your agent’s reasoning and output format by 
+comparing its responses to the human reference 
+responses. 
+o This can be done through manual inspection or by 
+designing simple LLM as a Judge comparison 
+checks with basic prompt engineering. 
+test_records.json
+o This file contains 10 unseen patient claim records 
+that will be used for final evaluation. 
+o Be sure to include the age field, formatted the 
+same way as in the evaluation records. o You 
+must run these records through your agent and 
+record the final response for each one. 
+o Results should be stored in a file named 
+submission.csv and submitted as part of your 
+deliverables along with the code notebook. 
+o The result file should contain two columns: 
+patient_id and generated_response, 
+corresponding to each patient in the test dataset. o
+The generated_response column must be populated 
+with the agent’s output for that specific patient ID. A 
+blank sample file named 
+Capstone 2 Instructions 
+22 | P a g e
+submission.csv is provided for reference, following 
+this exact format, following this link.
+Capstone 2 Instructions 
+23 | P a g e
+Building Your Healthcare Insurance Claim Approval Agent
+Create a notebook named “code.ipynb” where you will build your Claim Approval Agent. Your Jupyter Notebook 
+(code.ipynb) must include the complete implementation of your Healthcare Insurance Claim Approval Agent 
+architecture. This notebook will serve as the primary artifact for grading. Your final submission should include the 
+following: 
+• Jupyter Notebook containing the Insurance Claim Approval Agent Implementation code (code file in ipynb 
+format) 
+• Based on the Test Dataset Provided (test_records.json), run it on your agentic system and submit the 
+following (as mentioned earlier): 
+o CSV file (submission.csv) containing the following: 
+▪ Patient ID (column: patient_id) 
+▪ Agent Final Response (Column: generated_response) 
+Submission Guidelines:
+Your Jupyter Notebook (code.ipynb) should contain the complete implementation of your Healthcare Insurance 
+Claim Approval Agent and must include the following: 
+● The notebook should be clearly structured using appropriate Markdown headings and code comments to 
+explain each section. 
+● Each part of the implementation should be easy to follow and logically organized, demonstrating how it fits 
+into the overall agent system. 
+● Required Components in the Notebook: 
+Capstone 2 Instructions 
+24 | P a g e
+S
+Compone
+nt N o 
+Description
+1 Dataset Loading • Load all required input files (standard JSON files): 
+o reference_codes.json (ICD-10 and CPT code mappings) o
+validation_records.json & test_records.json (patient records) 
+o insurance_policies.json (policy documents) 
+2 Tool Definitions & 
+Implementations
+• Define & implement the following tools: 
+o summarize_patient_record(record_str) o
+summarize_policy_guideline(policy_id) 
+o check_claim_coverage(record_summary, 
+policy_summary) 
+• Ensure that each tool adheres to the specifications outlined in the 
+project description, including output format and structure. 
+3 System Instruction Prompt • Implement a system instruction prompt that: o Clearly defines 
+the three tools available to the agent o Specifies the 
+workflow sequence the agent must follow o Enforces the 
+correct output format (Decision and Reason) 
+4 LLM Integration • Use the selected LLM (e.g., gpt-4.1-mini) using a LangChain-compatible 
+setup. 
+5 Agent Creation Create a ReAct-style single agent using LangGraph: 
+• Option 1: Manually construct the agent with defined logic 
+• Option 2: Use the built-in create_react_agent() method with 
+proper configuration 
+Capstone 2 Instructions 
+25 | P a g e
+6 Agent Experimentation & 
+Validation 
+• For each patient record in validation_records.json, send the input to 
+the agent 
+• Note and analyze the agent’s response, and ensure that everything is 
+functioning as expected. 
+• Load the human reference responses from the 
+validation_reference_results.csv file 
+• Evaluate your agent using manual inspection or by applying simple “LLM as 
+a Judge” prompting to compare the agent’s response with the human 
+reference response. 
+• Adjust and improve your agent accordingly 
+7 Testing Generate agent responses for the patients in test_records.json and store 
+them in the format described in the following section. 
+Final Output 
+Capstone 2 Instructions 
+26 | P a g e
+Your final output file must be named submission.csv and should contain the generated agent responses for the 
+test dataset (test_records.json). This file will be used to evaluate your agent's performance. 
+● A sample file with blank responses is provided to you (submission.csv) for reference as depicted in the 
+following snapshot. You are expected to fill in the generated_response column for each patient in the test 
+data. 
+● in the Format Requirements: The final CSV file (submission.csv) must have the following two columns, 
+exact order and should look something like the following snapshot 
+Capstone 2 Instructions 
+27 | P a g e
+○
+Column 1: patient_id
+The unique ID of the patient from test_records.json (e.g., S001, S002, etc.). 
+Capstone 2 Instructions 
+28 | P a g e
+○
+○ 
+The submiss
+on page 30 
+Column 2: generated_response
+The final output from your agent for that patient record. The format must follow the structure 
+defined in your agent’s system instruction prompt and it should follow the same format and style 
+as the sample responses shown in the snapshot above. 
+Please make sure the patient IDs are in order, ranging from S001 to S010 as depicted above.
+ion.csv file and the code.ipynb files will be the primary artifacts used for final evaluation, so 
+make sure it is complete, consistent, and correctly formatted. We recommend you review the submission checklist 
+before submitting your files. 
+How Your Submission will be Evaluated 
+The submission would be evaluated by looking at several aspects, including:
+• Performance metrics measuring final response accuracy and reasoning quality 
+• Code Quality 
+• ReAct Agentic workflow used in the code 
+The following 3-point Rubrics (with a maximum scoring opportunity of 12), would be used for scoring your 
+submission: 
+Component Definition Scoring 
+Guidelines
+Needs 
+Improvement (1 
+point)
+Satisfactory Excellent 
+(2 points) (3 points)
+Capstone 2 Instructions 
+29 | P a g e
+Agentic AI 
+Performance 
+- Response 
+Reasoning 
+Quality
+Assesses the quality 
+of the agent’s final 
+response and 
+underlying 
+reasoning across all 
+10 test cases, based 
+on patient records 
+and their 
+corresponding 
+policy details 
+Evaluation will 
+be based on 
+two core 
+performance 
+metrics: 
+Response 
+Relevance and 
+Hallucination 
+Score
+Responses 
+demonstrate 
+incorrect or unclear 
+reasoning. CPT/ICD 
+codes are misused, 
+misinterpreted, or 
+hallucinated. 
+References to 
+patient or policy 
+data are missing, 
+irrelevant, or 
+factually incorrect. 
+Frequent 
+hallucinations, 
+including fabricated 
+procedures, 
+diagnoses, or policy 
+terms. 
+The majority (>50%, 
+but <80%) of 
+responses show 
+partially correct or 
+contextually 
+relevant reasoning. 
+Correct CPT/ICD 
+codes are used in 
+most cases, with 
+basic alignment to 
+patient diagnoses 
+and policy coverage. 
+Minor hallucinations 
+may be present but 
+do not significantly 
+affect the final 
+decision. Final 
+outcomes mostly 
+Reasoning is accurate, complete, 
+and well-aligned in almost all 
+responses (>=80%). Correct 
+CPT/ICD codes are consistently 
+applied, explicitly linked to patient 
+conditions and policy eligibility. 
+No hallucinations—agent never 
+fabricates procedures, diagnoses, 
+or policy rules. Final decisions are 
+clearly structured, logically 
+justified, and supported by 
+explicit references to both patient 
+and policy data. 
+align with reference 
+responses, though 
+reasoning may lack 
+depth or 
+completeness. 
+Definition Scoring 
+Guidelines 
+Needs 
+Improvement (1 
+point) 
+Satisfactory 
+(2 points) 
+Excellent 
+(3 points) 
+Capstone 2 Instructions 
+30 | P a g e
+Agentic AI 
+Performance 
+– Decision 
+Accuracy
+Measures how 
+accurately the agent 
+classifies insurance 
+claims as APPROVE
+or ROUTE TO 
+REVIEW across all 
+10 test cases, based 
+on comparison with 
+ground-truth 
+reference 
+responses. 
+Evaluation will 
+leverage 
+standard 
+classification 
+metrics like 
+Accuracy, 
+Precision, 
+Recall, and 
+F1score across 
+the 10 test 
+cases and 
+decide the final 
+score based on 
+these metrics. 
+Most responses 
+exhibit low 
+performance across 
+key metrics 
+(precision, recall, 
+and F1-score) 
+particularly for one 
+or both classes.
+The agent 
+demonstrates 
+biased or random 
+behavior (e.g., 
+always selecting 
+"APPROVE"), 
+resulting in poor 
+alignment with 
+reference 
+decisions. 
+The majority (>50%, 
+but <80%) of 
+responses are 
+correctly classified, 
+with moderate 
+precision and recall 
+scores. The agent 
+handles common 
+scenarios 
+reasonably well, 
+though struggles 
+with edge cases or 
+complex policy 
+conditions. 
+Almost all responses (>=80%) are 
+correctly classified, with 
+consistently high precision, recall, 
+and F1-score across both 
+APPROVE and ROUTE TO REVIEW 
+classes. Final outcomes closely 
+match the reference decisions, 
+with strong alignment across all 
+test cases. 
+Definition Scoring 
+Guidelines 
+Needs 
+Improvement (1 
+point) 
+Satisfactory 
+(2 points) 
+Excellent 
+(3 points) 
+Solution 
+Code Quality 
+Evaluates the 
+overall quality of the 
+code implementing 
+the solution 
+notebook, focusing 
+on readability, 
+Code is difficult to 
+read or understand, 
+lacks proper 
+structure, and 
+contains minimal or 
+no documentation 
+Code is mostly 
+modular, with some 
+level of 
+documentation and 
+comments. 
+Structure and 
+Code is clean, well-structured, 
+and modular. It includes 
+comprehensive documentation, 
+comments, clear variable and 
+function naming, and adheres to 
+Capstone 2 Instructions 
+31 | P a g e
+modularity, 
+correctness, and 
+documentation. 
+or comments. Error 
+handling is 
+inadequate or 
+absent. 
+readability are 
+acceptable, though 
+there may be minor 
+issues. 
+best practices for readability, 
+modularity, and error handling. 
+Definition Scoring 
+Guidelines 
+Needs 
+Improvement (1 
+point) 
+Satisfactory 
+(2 points) 
+Excellent 
+(3 points) 
+Agentic 
+Workflow 
+Design & 
+Implementat
+ion 
+Evaluates the overall 
+architecture and 
+implementation of 
+the agentic system 
+pipeline, including 
+tool design, 
+configuration, 
+planning logic, 
+stepwise execution, 
+and 
+response generation 
+across a multi-tool, 
+single ReAct Agent 
+workflow. 
+Evaluation will 
+be based on 
+the system’s 
+completeness, 
+logical flow, tool 
+integration, 
+prompt quality, 
+and overall 
+workflow. 
+The single ReAct 
+agentic system is 
+incomplete or 
+contains major 
+logical flaws. Tools 
+are used incorrectly 
+or misaligned (e.g., 
+applying the policy 
+summarizer to 
+patient data). 
+Workflow steps are 
+missing or mentioned 
+in the wrong order 
+(e.g., 
+performing 
+eligibility checks 
+before 
+summarization). The 
+quality of individual 
+tool-level prompts 
+and system-level 
+prompts is poor and 
+overly generic. ReAct 
+agent 
+A standard endtoend single ReAct 
+agentic system is 
+implemented with a 
+basic correct flow: 
+Summarize Record 
+→ Summarize 
+Policy → Validate 
+Eligibility 
+Utilizes LangChain 
+(LLM I/O) and 
+standard 
+LangGraph flows. All 
+tools are 
+appropriately 
+configured and 
+integrated with 
+proper input-output 
+handling.
+Includes: 
+• Basic tool 
+definitions and 
+prompts 
+A robust, modular, and 
+wellorchestrated end-to-end single 
+ReAct agentic system is 
+implemented with a proper 
+expected flow: Summarize 
+Record → Summarize Policy →
+Validate Eligibility → Final 
+Decision with Detailed 
+Reasoning
+Utilizes LangChain (LLM I/O) and 
+standard LangGraph flows. All tools 
+are appropriately configured and 
+integrated with proper inputoutput 
+handling.
+Includes: 
+• Well-crafted system-level 
+prompts that clearly define 
+the agent’s behavior and 
+decision-making objectives 
+• Detailed and specific 
+toollevel prompts to guide 
+each tool’s function 
+effectively 
+Capstone 2 Instructions 
+32 | P a g e
+• Defined ReAct 
+agent 
+• A clearly defined output 
+format for structured and 
+consistent responses 
+Capstone 2 Instructions 
+33 | P a g e
+workflow code has 
+flaws. 
+•
+•
+Clear tool 
+orchestration 
+May lack clarity 
+in tool-level or 
+system-level 
+prompt 
+instructions and 
+output response 
+formatting 
+instructions and 
+consistency 
+•
+•
+Final responses include 
+justifications and reasoning 
+for decisions 
+(approval/rejection), backed 
+by patient and policy data Use 
+of prompt engineering 
+techniques to minimize 
+ambiguity, enhance response 
+quality, and ensure tool 
+alignment 
+Total Score Grade Pass/Fail Description
+11–12 points Excellent Pass Outstanding performance across all areas. Demonstrates a strong 
+understanding of RAG concepts and implementation. 
+8–10 points Satisfactory Pass Good overall performance with a solid grasp of key concepts, though 
+there is room for improvement in some areas. 
+4–7 points Needs 
+Improvement
+Fail Basic or inconsistent performance. Key areas of the RAG system 
+require further development and refinement. 
+Capstone 2 Instructions 
+34 | P a g e
+Note to Learners 
+About Evaluation 
+Once you submit your capstone, we will evaluate it within 14 days. Once your capstone evaluation is complete, you 
+will receive a detailed report regarding your submission. If you received a passing grade, this will be visible in the 
+Generative AI journey in MyLearning. If you do not receive your grade within 2 weeks of your submission, you can 
+send us an email or drop in a comment in the AIML community. 
+About Resubmission 
+Your first submission of the Generative AI capstone is free, and you get one free resubmission if you don’t pass the 
+first time. If you fail the capstone twice, your third (and every subsequent) submission will incur a $100 charge to 
+your department’s GL. This is to encourage you to do your very best work the first time you submit! 
+Submission Checklist 
+Sl No. Description Status 
+1 The Jupyter notebook is saved as code.ipynb ☐ Checked 
+2 The Jupyter notebook has all the major sections including: 
+• Markdown headings and code comments 
+• Logical and organized implementation of the overall agent system 
+☐ Checked 
+3 Dataset loading – with all necessary input files ☐ Checked 
+Capstone 2 Instructions 
+35 | P a g e
+4 Tool definitions and implementations with proper definition and implementation of the 
+following tools: 
+• summarize_patient_record(record_str) 
+• summarize_policy_guideline(policy_id) 
+☐ Checked 
+ 
+Capstone 2 Instructions 
+check_claim_coverage(record_summary, policy_summary)
+5 Each tool adheres to the specifications outlined in the project description, including 
+output format and structure.
+6 The system instruction prompts:
+Clearly defines the three tools available to the agent
+Specifies the workflow sequence the agent must follow Enforces the 
+correct output format (Decision and Reason) 7 LLM selected 
+using a LangChain compatible setup.
+8 The Single Agent created using LangGraph is a ReAct agent.
+9 The agent’s responses for all records in validation_records .json were 
+compared with the human reference answers in 
+validation_reference_results.csv to verify that the system is functioning as 
+expected.
+10 The final output for test results (after generating the agent’s responses for all 
+records in test_r ecords.json) is named as “ submission.csv ” and it 
+follows the recommended CSV structure with column names “ patient_id ” and 
+“ generated_response ”. 
+11
+Checked 
+Checked 
+Checked 
+Checked 
+Checked 
+Checked 
+Checked 
+31 | P a g e
+Capstone 2 Instructions 
+37 | P a g e
+Appendix 
+Sample Data Example:
+CPT Code Mapping Dataset (used to enrich summary reports)
+{ 
+ '93000': 'Electrocardiogram, routine ECG with at least 12 leads; with interpretation and 
+report', 
+ '99213': 'Office or outpatient visit for an established patient, typically 20–29 
+minutes', 
+ '70450': 'CT scan of the head or brain without contrast material', 
+ '83036': 'Hemoglobin glycosylated A1c test', 
+ '93010': 'ECG interpretation and reporting of a routine ECG with at least 12 leads', 
+ '99214': 'Office visit for established patient with moderate complexity', 
+ '71200': 'Chest X-ray, two views, frontal and lateral', 
+ '36415': 'Collection of venous blood by venipuncture', 
+ '85025': 'Complete blood count (CBC) with automated differential', 
+ '45378': 'Diagnostic colonoscopy including collection of 
+specimens' } 
+ICD-10 
+Code 
+Mapping 
+Dataset 
+(used to 
+enrich 
+summary 
+reports):
+{ 
+ 
+'I10': 
+'Essent
+ial 
+(primar
+y) 
+hyperte
+nsion', 
+ 'E11.9': 'Type 2 diabetes mellitus without complications', 
+ 'G43.909': 'Migraine, unspecified, not intractable, without status migrainosus', 
+ 'I20.0': 'Unstable angina', 
+ 'I48.91': 'Unspecified atrial fibrillation', 
+Capstone 2 Instructions 
+38 | P a g e
+ 'J44.9': 'Chronic obstructive pulmonary disease, unspecified', 
+ 'K21.9': 'Gastro-esophageal reflux disease without esophagitis', 
+ 'M54.5': 'Low back pain, also known as lumbago', 
+ 'N39.0': 'Urinary tract infection, site of infection not specified', 
+ 'F32.9': 'Major depressive disorder, single episode, unspecified' 
+} 
+Patient Detail Example (Input to the Agent):
+{ 
+'patient_id': 'P002',
+'name': 'Robert Jones',
+'date_of_birth': '1982-03-15',
+'gender': 'Female',
+'insurance_policy_id': 'POL1007',
+'diagnosis_codes': ['N39.0'],
+'procedure_codes': ['85025'],
+'date_of_service': '2025-05-03',
+'provider_id': 'PRV002',
+'provider_specialty': 'Neurology',
+'location': 'Los Angeles, CA',
+'claim_amount': 3500.0,
+'preauthorization_required': True,
+'preauthorization_obtained': True,
+'age': 43 # needs to be computed 
+} 
+Capstone 2 Instructions 
+39 | P a g e
+Policy Document Guidelines Example (Used by the Agent):
+{ 
+'policy_id': 'POL1007',
+'plan_name': 'Essential Care Plus',
+'covered_procedures': [ 
+{ 
+'procedure_code': '85025',
+ 'covered_diagnoses': ['N39.0'],
+ 'age_range': [28, 79],
+ 'gender': 'Any',
+ 'requires_preauthorization': True,
+ 'coverage_limit': 5947.37,
+ 
+},
+{ 
+'notes': 'Complete blood count (CBC) covered for N39.0 cases.' 
+'procedure_code': '93010',
+ 'covered_diagnoses': ['N39.0'],
+ 'age_range': [1, 70],
+ 'gender': 'Male',
+ 'requires_preauthorization': False,
+ 'coverage_limit': 3947.91,
+ 'notes': 'ECG interpretation only covered for N39.0 cases.' 
+} 
+Capstone 2 Instructions 
+40 | P a g e
+]} 
+ 
+Sample Agent Response:
+o Decision: APPROVE o Reason: The claim for the complete blood count (CPT code 85025) is 
+approved because this procedure is covered under the policy for the diagnosis of urinary tract 
+infection (N39.0), which applies to the patient's diagnosis. The patient's age (43) and gender 
+(Female) meet the policy requirements, and preauthorization was obtained. Additionally, the 
+claim amount of $3500.00 would be paid in full, as the bill amount is less than the permissible 
+amount of $5947.37. All coverage requirements are satisfied. 
+Sample Agent Response (for manual review routing): 
+o Decision: ROUTE FOR REVIEW o Reason: The claim for the electrocardiogram (CPT code 93000) 
+cannot be automatically approved because the patient's age of 69 exceeds the policy's allowed 
+age range of 11 to 63. Although the diagnosis of low back pain (M54.5) and the procedure code 
+match the policy's covered conditions, the age requirement is not met. Therefore, the claim 
+needs to be routed for further manual review
