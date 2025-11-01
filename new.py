@@ -152,7 +152,6 @@ def run_inventory(lom: str, baseline_path: str) -> bool:
         INVENTORY_CHECK_INTERVAL, MAX_INVENTORY_ATTEMPTS, "Inventory"
     )
 
-
 def generate_deploy_preview_report(lom: str, reports_dir: str) -> List[str]:
     """Generate Installables CSV report."""
     logger.info(f"[{lom}] Generating deploy preview report")
@@ -164,12 +163,34 @@ def generate_deploy_preview_report(lom: str, reports_dir: str) -> List[str]:
     paths = []
     for match in re.finditer(r"(/pub/reports/[^ \n]+\.csv)", output):
         src = match.group(1)
+        if not Path(src).exists():
+            logger.warning(f"[{lom}] Report {src} not found on filesystem")
+            continue
+        
+        # Compute dest
         dest = os.path.join(reports_dir, Path(src).name)
-        if Path(src).exists():
-            subprocess.run(["sudo", "mv", src, dest], check=True)
-            subprocess.run(["sudo", "chmod", PERMISSION_FILE, dest], check=True)
-            paths.append(dest)
-            logger.debug(f"[{lom}] Report moved: {dest}")
+        
+        # Skip move if src == dest (already in correct location)
+        if src != dest:
+            try:
+                subprocess.run(["sudo", "mv", src, dest], check=True)
+                logger.debug(f"[{lom}] Report moved: {src} -> {dest}")
+            except subprocess.CalledProcessError as e:
+                logger.error(f"[{lom}] Failed to move {src} to {dest}: {e}")
+                continue  # Skip this path on failure
+        else:
+            logger.debug(f"[{lom}] Report already in place: {src}")
+        
+        # Always set permissions on final path
+        final_path = dest if src != dest else src
+        try:
+            subprocess.run(["sudo", "chmod", PERMISSION_FILE, final_path], check=True)
+            paths.append(final_path)
+            logger.debug(f"[{lom}] Permissions set on: {final_path}")
+        except subprocess.CalledProcessError as e:
+            logger.error(f"[{lom}] Failed to set permissions on {final_path}: {e}")
+    
+    logger.info(f"[{lom}] Generated {len(paths)} report(s)")
     return paths
 
 
