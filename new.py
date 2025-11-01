@@ -124,14 +124,23 @@ def add_node(lom: str, username: str, password: str, node_type: str) -> bool:
 
 
 def set_node_attributes(lom: str) -> bool:
-    """Set required node attributes."""
+    """Set required node attributes, including AUTO REBOOT."""
     attrs = [
-        "ignore_warnings=true", "ignore_tpm=true",
-        "on_failed_dependency=force", "skip_prereqs=true"
+        "ignore_warnings=true",
+        "ignore_tpm=true",
+        "on_failed_dependency=force",
+        "skip_prereqs=true",
+        "reboot_action=Auto" 
     ]
-    logger.info(f"[{lom}] Setting node attributes")
+    logger.info(f"[{lom}] Setting node attributes (with auto-reboot)")
     cmd = ["sudo", CHECKFIRMWARE_EXEC, "setattributes", "--nodes", lom] + attrs
-    return bool(run_cmd(cmd))
+    result = run_cmd(cmd, return_dict=True)
+    if result["success"]:
+        logger.info(f"[{lom}] Node attributes set successfully (reboot_action=Auto)")
+        return True
+    else:
+        logger.error(f"[{lom}] Failed to set node attributes: {result.get('error', '')}")
+        return False
 
 
 def set_session_report_dir(reports_dir: str) -> bool:
