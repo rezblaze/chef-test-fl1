@@ -1,3 +1,21 @@
+Here is my current file and it works, I want it refactored and verified, here is what it should do:Check smartupdate getnodes <node_name> --details 
+Remove the node if its there
+Readd the node
+set the node attributes 
+Set the session attributes
+Run the inventory 
+create the html page ( this code is working )
+Make sure the reports are in the correct location and proper permissions
+if the deploy is true, do all the above steps
+run the deploy
+check and report the status every 30 seconds in the log file 
+Once complete, check the status and if the node is not up to date run the deploy once more
+recheck the status
+run the report
+
+
+
+
 import logging
 import os
 import re
