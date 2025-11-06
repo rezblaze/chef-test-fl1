@@ -1,4 +1,4 @@
-This code works, but seems complicted. PLease refactor without breaking the current code. 
+This code works, but seems complicted. PLease refactor without breaking the current code. If the Node Status is not clean on neededing an update just report the node status and stop. Also before the deploy make sure the attributes and correctly segt and logged. 
 
 
 import logging
@@ -21,10 +21,25 @@ import app.ZTP as ZTP
 # Constants
 CHECKFIRMWARE_EXEC = "/usr/sbin/smartupdate"
 DEFAULT_TIMEOUT = 1800  # 30 minutes for inventory
-INVENTORY_CHECK_INTERVAL = 60  # Check every 60 seconds (1 minute)
-MAX_INVENTORY_ATTEMPTS = 30  # Up to 30 minutes total
 REPORT_BASE_PATH = "/pub/reports/sum"
-PERMISSION_MODE = "755"  # Changed to 755 for readable by everyone
+
+# Node attributes required for deployment
+NODE_ATTRIBUTES_SET = {
+    "ignore_warnings": "true",
+    "ignore_tpm": "true", 
+    "action": "ifneeded",
+    "skip_prereqs": "true",
+    "rewrite": "true"
+}
+
+# Expected values when verifying (SmartUpdate Manager may format them differently)
+NODE_ATTRIBUTES_VERIFY = {
+    "ignore_warnings": "true",
+    "ignore_tpm": "true", 
+    "action": "If Needed",
+    "skip_prereqs": "true",
+    "rewrite": "true"
+}
 
 # Initialize global variable
 _first_smartupdate_called = False
@@ -143,130 +158,74 @@ def parse_node_status(output: str, lom: str) -> Optional[str]:
 
 
 def get_node_status(lom: str) -> Optional[str]:
-    """Retrieve node status using 'getnodes <node_name>'."""
-    cmd = ["sudo", CHECKFIRMWARE_EXEC, "getnodes", lom]
+    """Retrieve node status using 'getnodes <node_name> --details'."""
+    cmd = ["sudo", CHECKFIRMWARE_EXEC, "getnodes", lom, "--details"]
     output = run_cmd(cmd)
     if output:
-        logger.debug(f"[{lom}] Retrieved getnodes output successfully")
+        logger.debug(f"[{lom}] Retrieved getnodes --details output successfully")
         return output
-    logger.warning(f"[{lom}] Failed to retrieve getnodes output")
+    logger.warning(f"[{lom}] Failed to retrieve getnodes --details output")
     return None
 
 
-def wait_for_inventory_progress(lom: str) -> bool:
-    """Wait for inventory process to complete with regular status updates.
+def wait_for_process_completion(lom: str, process_name: str, in_progress_keywords: List[str], max_minutes: int = 30) -> bool:
+    """Generic function to wait for any process (inventory/deployment) to complete.
     
-    Monitors the node status every 30 seconds and provides progress updates.
-    Expected status progression:
-    - "Inventory started" -> inventory in progress
-    - Any other status -> inventory completed (success or failure)
+    Args:
+        lom: Node name
+        process_name: Human-readable process name for logging
+        in_progress_keywords: List of keywords that indicate process is still running
+        max_minutes: Maximum time to wait in minutes
     
     Returns:
-        bool: True if inventory completed, False if timed out
+        bool: True if process completed, False if timed out
     """
     check_interval = 30  # Check every 30 seconds
-    max_attempts = 60   # Up to 30 minutes total (60 * 30 seconds)
+    max_attempts = (max_minutes * 60) // check_interval
     
-    logger.info(f"[{lom}] Starting inventory progress monitoring (checking every {check_interval} seconds)")
+    logger.info(f"[{lom}] Starting {process_name} monitoring (checking every {check_interval} seconds)")
     
     previous_status = None
     for attempt in range(max_attempts):
         output = get_node_status(lom)
         status = parse_node_status(output, lom) if output else None
         
-        # Format the elapsed time
         elapsed_seconds = (attempt + 1) * check_interval
         elapsed_minutes = elapsed_seconds // 60
         elapsed_secs = elapsed_seconds % 60
-        total_minutes = (max_attempts * check_interval) // 60
         
         if status:
-            # Only log if status changed or every 2 minutes for long-running operations
             status_changed = status != previous_status
-            log_periodic = (attempt + 1) % 4 == 0  # Every 2 minutes (4 * 30 seconds)
+            log_periodic = (attempt + 1) % 4 == 0  # Every 2 minutes
             
             if status_changed:
                 logger.info(f"[{lom}] Status changed to: '{status}' (elapsed: {elapsed_minutes}m {elapsed_secs}s)")
             elif log_periodic:
-                logger.info(f"[{lom}] Status check: '{status}' (elapsed: {elapsed_minutes}m {elapsed_secs}s / {total_minutes}m)")
+                logger.info(f"[{lom}] Status check: '{status}' (elapsed: {elapsed_minutes}m {elapsed_secs}s / {max_minutes}m)")
             
-            # Check if inventory is still in progress
-            if status.lower() == "inventory started":
-                if status_changed:
-                    logger.info(f"[{lom}] Inventory in progress...")
-            else:
-                # Inventory completed (could be success, error, or other final state)
-                logger.info(f"[{lom}] Inventory completed after {elapsed_minutes}m {elapsed_secs}s - Final Status: {status}")
-                return True
-                
-            previous_status = status
-        else:
-            logger.warning(f"[{lom}] No status retrieved from getnodes on attempt {attempt + 1}/{max_attempts} (elapsed: {elapsed_minutes}m {elapsed_secs}s)")
-        
-        # Don't sleep on the last attempt
-        if attempt < max_attempts - 1:
-            time.sleep(check_interval)
-    
-    logger.error(f"[{lom}] Inventory did not complete after {total_minutes} minutes - timed out")
-    return False
-
-
-def wait_for_deployment_progress(lom: str) -> bool:
-    """Wait for deployment process to complete with regular status updates.
-    
-    Monitors the node status every 30 seconds and provides progress updates.
-    Expected status progression:
-    - "Deploy started" or "Deploying" or similar -> deployment in progress
-    - Any other status -> deployment completed (success or failure)
-    
-    Returns:
-        bool: True if deployment completed, False if timed out
-    """
-    check_interval = 30  # Check every 30 seconds
-    max_attempts = 120   # Up to 60 minutes total for deployment (120 * 30 seconds)
-    
-    logger.info(f"[{lom}] Starting deployment progress monitoring (checking every {check_interval} seconds)")
-    
-    previous_status = None
-    for attempt in range(max_attempts):
-        output = get_node_status(lom)
-        status = parse_node_status(output, lom) if output else None
-        
-        # Format the elapsed time
-        elapsed_seconds = (attempt + 1) * check_interval
-        elapsed_minutes = elapsed_seconds // 60
-        elapsed_secs = elapsed_seconds % 60
-        total_minutes = (max_attempts * check_interval) // 60
-        
-        if status:
-            # Only log if status changed or every 2 minutes for long-running operations
-            status_changed = status != previous_status
-            log_periodic = (attempt + 1) % 4 == 0  # Every 2 minutes (4 * 30 seconds)
+            # For deployment processes, log complete getnodes output every 30 seconds for detailed tracking
+            if "deployment" in process_name.lower():
+                logger.info(f"[{lom}] Complete getnodes output (elapsed: {elapsed_minutes}m {elapsed_secs}s):")
+                for line in output.strip().split('\n'):
+                    logger.info(f"[{lom}] DEPLOY: {line}")
             
-            if status_changed:
-                logger.info(f"[{lom}] Status changed to: '{status}' (elapsed: {elapsed_minutes}m {elapsed_secs}s)")
-            elif log_periodic:
-                logger.info(f"[{lom}] Status check: '{status}' (elapsed: {elapsed_minutes}m {elapsed_secs}s / {total_minutes}m)")
-            
-            # Check if deployment is still in progress
+            # Check if process is still in progress
             status_lower = status.lower()
-            if any(keyword in status_lower for keyword in ["deploy started", "deploying", "deployment in progress", "installing", "updating", "rebooting", "reboot"]):
+            if any(keyword in status_lower for keyword in in_progress_keywords):
                 if status_changed:
-                    logger.info(f"[{lom}] Deployment in progress...")
+                    logger.info(f"[{lom}] {process_name} in progress...")
             else:
-                # Deployment completed (could be success, error, or other final state)
-                logger.info(f"[{lom}] Deployment completed after {elapsed_minutes}m {elapsed_secs}s - Final Status: {status}")
+                logger.info(f"[{lom}] {process_name} completed after {elapsed_minutes}m {elapsed_secs}s - Final Status: {status}")
                 return True
                 
             previous_status = status
         else:
-            logger.warning(f"[{lom}] No status retrieved from getnodes on attempt {attempt + 1}/{max_attempts} (elapsed: {elapsed_minutes}m {elapsed_secs}s)")
+            logger.warning(f"[{lom}] No status retrieved on attempt {attempt + 1}/{max_attempts}")
         
-        # Don't sleep on the last attempt
         if attempt < max_attempts - 1:
             time.sleep(check_interval)
     
-    logger.error(f"[{lom}] Deployment did not complete after {total_minutes} minutes - timed out")
+    logger.error(f"[{lom}] {process_name} did not complete after {max_minutes} minutes - timed out")
     return False
 
 
@@ -289,14 +248,45 @@ def parse_report_paths(report_output: str, lom: str) -> List[str]:
 def parse_attributes_output(output: Optional[str]) -> Dict[str, str]:
     """Parse attributes from command output."""
     attributes = {}
-    if output:
-        for line in output.strip().split("\n"):
-            if ":" in line and line.strip():
-                try:
-                    key, value = map(str.strip, line.split(":", 1))
-                    attributes[key] = value
-                except ValueError:
-                    continue
+    if not output:
+        return attributes
+    
+    lines = output.strip().split("\n")
+    current_section = None
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+            
+        # Check for section headers
+        if line.endswith(":") and not any(char in line for char in ["=", "\t"]):
+            current_section = line[:-1].strip()
+            continue
+            
+        # Parse attribute lines with various separators
+        if ":" in line:
+            # Handle lines like "action          : Never" or "ignore_warnings: true"
+            parts = line.split(":", 1)
+            if len(parts) == 2:
+                key = parts[0].strip()
+                value = parts[1].strip()
+                attributes[key] = value
+        elif "\t" in line:
+            # Handle lines with tabs like "rewrite			: false"
+            parts = line.split(":", 1)
+            if len(parts) == 2:
+                key = parts[0].strip()
+                value = parts[1].strip()
+                attributes[key] = value
+        elif "=" in line:
+            # Handle lines like "attribute=value"
+            parts = line.split("=", 1)
+            if len(parts) == 2:
+                key = parts[0].strip()
+                value = parts[1].strip()
+                attributes[key] = value
+    
     return attributes
 
 
@@ -357,7 +347,7 @@ def prepare_report_directories(lom: str) -> Tuple[str, str, str, str]:
     return base_dir, reports_dir, temp_dir, timestamp
 
 
-def generate_html_report(lom: str, reports_dir: str, base_dir: str, node_gen: str = None, baseline_path: str = None, run_time: str = None, update_required: bool = None) -> Optional[str]:
+def generate_html_report(lom: str, reports_dir: str, base_dir: str, node_gen: str = None, baseline_path: str = None, run_time: str = None, update_required: bool = None, current_node_status: str = None, post_deploy_report_url: str = None) -> Optional[str]:
     """Generate HTML report from deploy preview CSV file generated by smartupdate."""
     try:
         # Look for any CSV file in the reports directory since we're only generating deploy preview
@@ -377,7 +367,7 @@ def generate_html_report(lom: str, reports_dir: str, base_dir: str, node_gen: st
             csv_content = file.read()
         
         # Generate HTML using sum_report_gen
-        html_output = parse_sum_report_to_html(csv_content, server_name=lom, node_gen=node_gen, baseline_path=baseline_path, run_time=run_time, update_required=update_required)
+        html_output = parse_sum_report_to_html(csv_content, server_name=lom, node_gen=node_gen, baseline_path=baseline_path, run_time=run_time, update_required=update_required, current_node_status=current_node_status, post_deploy_report_url=post_deploy_report_url)
         
         # Generate HTML filename in base_dir (not reports_dir)
         csv_filename = Path(csv_file).name
@@ -428,269 +418,408 @@ def calculate_execution_time(start_time: float) -> tuple:
     return round(execution_time, 2), f"{minutes}m {seconds}s"
 
 
-def verify_and_set_node_attributes(lom: str) -> bool:
-    """Verify and ensure node attributes are properly set for deployment."""
-    required_attributes = {
-        "ignore_warnings": "true",
-        "ignore_tpm": "true", 
-        "failed_dependency": "OMITHOST",
-        "skip_prereqs": "true",
-        "action": "ifneeded"
-    }
+def is_node_up_to_date(lom: str) -> bool:
+    """Check if node is up to date (no firmware updates required)."""
+    output = get_node_status(lom)
+    status = parse_node_status(output, lom) if output else None
     
-    # Get current attributes
-    logger.info(f"[{lom}] Verifying node attributes")
-    get_attr_cmd = ["sudo", CHECKFIRMWARE_EXEC, "getattributes", "--nodes", lom]
-    logger.info(f"[{lom}] Running command: {' '.join(get_attr_cmd)}")
-    attr_output = run_cmd(get_attr_cmd)
-    
-    if not attr_output:
-        logger.warning(f"[{lom}] Failed to get node attributes")
+    if not status:
+        logger.warning(f"[{lom}] Could not determine node status")
         return False
     
-    # Log the full getattributes output for verification
-    logger.info(f"[{lom}] getattributes output:")
-    logger.info(f"[{lom}] ATTRIBUTES START")
-    logger.info(attr_output)
-    logger.info(f"[{lom}] ATTRIBUTES END")
+    status_lower = status.lower()
+    needs_update = any(keyword in status_lower for keyword in ["update required", "update"])
     
-    # Parse attributes
-    current_attributes = parse_attributes_output(attr_output)
+    if needs_update:
+        logger.info(f"[{lom}] Node requires updates - Status: {status}")
+        return False
+    else:
+        logger.info(f"[{lom}] Node appears up to date - Status: {status}")
+        return True
+
+
+def perform_deployment_with_retry(lom: str, hostname: str = None) -> Dict:
+    """Perform deployment and retry once if node is not up to date."""
+    deployment_result = {
+        "initial_deploy_success": False,
+        "final_status": None,
+        "retry_attempted": False,
+        "retry_deploy_success": False,
+        "overall_success": False
+    }
     
-    # Check if required attributes are set correctly
-    missing_or_incorrect = []
-    for attr_name, expected_value in required_attributes.items():
-        current_value = current_attributes.get(attr_name, "").lower()
-        if current_value != expected_value.lower():
-            missing_or_incorrect.append(f"{attr_name}={expected_value}")
-            logger.warning(f"[{lom}] Attribute {attr_name} is '{current_value}', expected '{expected_value}'")
+    # Verify node attributes before deployment
+    logger.info(f"[{lom}] Verifying node attributes before deployment")
+    if not verify_and_set_node_attributes(lom):
+        logger.error(f"[{lom}] Node attributes verification failed, proceeding anyway")
     
-    # If any attributes are missing or incorrect, set them
-    if missing_or_incorrect:
-        logger.info(f"[{lom}] Setting missing/incorrect attributes: {', '.join(missing_or_incorrect)}")
-        set_attr_cmd = ["sudo", CHECKFIRMWARE_EXEC, "setattributes", "--nodes", lom] + missing_or_incorrect
+    # Ensure server is powered on before firmware deployment
+    logger.info(f"[{lom}] Ensuring server is powered on before firmware deployment")
+    ensure_server_powered_on(lom, hostname)
+    
+    # First deployment attempt
+    dep_cmd = ["sudo", CHECKFIRMWARE_EXEC, "deploy", "--nodes", lom]
+    logger.info(f"[{lom}] Starting initial firmware deployment with command: {' '.join(dep_cmd)}")
+    deploy_result = run_cmd(dep_cmd, return_dict=True)
+    
+    if deploy_result and deploy_result.get("success"):
+        logger.info(f"[{lom}] Initial deployment command completed successfully")
+        deployment_result["initial_deploy_success"] = True
         
-        if not run_cmd(set_attr_cmd):
-            logger.error(f"[{lom}] Failed to set node attributes: {', '.join(missing_or_incorrect)}")
-            return False
+        # Wait for deployment to complete
+        deployment_completed = wait_for_process_completion(lom, "Initial Deployment", 
+            ["deploy started", "deploying", "deployment in progress", "installing", "updating", "rebooting", "reboot"], 60)
         
-        # Verify again
-        logger.info(f"[{lom}] Re-verifying attributes after setting")
-        get_attr_cmd_verify = ["sudo", CHECKFIRMWARE_EXEC, "getattributes", "--nodes", lom]
-        logger.info(f"[{lom}] Running verification command: {' '.join(get_attr_cmd_verify)}")
-        attr_output = run_cmd(get_attr_cmd_verify)
-        if attr_output:
-            # Log the verification output
-            logger.info(f"[{lom}] Verification getattributes output:\n{attr_output}")
-            current_attributes = parse_attributes_output(attr_output)
-            for attr_name, expected_value in required_attributes.items():
-                current_value = current_attributes.get(attr_name, "").lower()
-                if current_value != expected_value.lower():
-                    logger.error(f"[{lom}] Attribute {attr_name} still incorrect after setting: '{current_value}' != '{expected_value}'")
-                    return False
+        if deployment_completed:
+            logger.info(f"[{lom}] Initial deployment monitoring completed")
+            
+            # Check if node is up to date after first deployment
+            if not is_node_up_to_date(lom):
+                logger.info(f"[{lom}] Node still requires updates after initial deployment, attempting retry")
+                deployment_result["retry_attempted"] = True
+                
+                # Second deployment attempt
+                logger.info(f"[{lom}] Starting retry firmware deployment")
+                retry_deploy_result = run_cmd(dep_cmd, return_dict=True)
+                
+                if retry_deploy_result and retry_deploy_result.get("success"):
+                    logger.info(f"[{lom}] Retry deployment command completed successfully")
+                    deployment_result["retry_deploy_success"] = True
+                    
+                    # Wait for retry deployment to complete
+                    retry_completed = wait_for_process_completion(lom, "Retry Deployment", 
+                        ["deploy started", "deploying", "deployment in progress", "installing", "updating", "rebooting", "reboot"], 60)
+                    
+                    if retry_completed:
+                        logger.info(f"[{lom}] Retry deployment monitoring completed")
+                else:
+                    logger.error(f"[{lom}] Retry deployment command failed")
+            else:
+                logger.info(f"[{lom}] Node is up to date after initial deployment")
         else:
-            logger.error(f"[{lom}] Failed to re-verify attributes")
+            logger.warning(f"[{lom}] Initial deployment monitoring timed out")
+    else:
+        logger.error(f"[{lom}] Initial deployment command failed")
+    
+    # Get final status
+    final_output = get_node_status(lom)
+    final_status = parse_node_status(final_output, lom) if final_output else None
+    deployment_result["final_status"] = final_status
+    deployment_result["overall_success"] = is_node_up_to_date(lom)
+    
+    logger.info(f"[{lom}] Deployment summary - Initial: {deployment_result['initial_deploy_success']}, "
+                f"Retry: {deployment_result['retry_attempted']}, Final Status: {final_status}")
+    
+    return deployment_result
+
+
+def set_session_attributes(reports_dir: str, lom: str) -> bool:
+    """Set session-level attributes for SmartUpdate Manager."""
+    logger.info(f"[{lom}] Setting session attribute: report_dir={reports_dir}")
+    cmd = ["sudo", CHECKFIRMWARE_EXEC, "setattributes", "--session", f"report_dir={reports_dir}"]
+    
+    if run_cmd(cmd):
+        logger.info(f"[{lom}] Successfully set session attributes")
+        return True
+    else:
+        logger.error(f"[{lom}] Failed to set session attributes")
+        return False
+
+
+def set_node_attributes(lom: str) -> bool:
+    """Set all required node attributes for deployment."""
+    # Convert dictionary to list of command-line formatted strings
+    attributes = [f"{key}={value}" for key, value in NODE_ATTRIBUTES_SET.items()]
+    
+    logger.info(f"[{lom}] Setting node attributes: {', '.join(attributes)}")
+    cmd = ["sudo", CHECKFIRMWARE_EXEC, "setattributes", "--nodes", lom] + attributes
+    
+    result = run_cmd(cmd)
+    if not result:
+        logger.error(f"[{lom}] Failed to set node attributes")
+        return False
+    
+    logger.info(f"[{lom}] Node attributes command completed, verifying they were applied correctly")
+    
+    # Wait a moment for attributes to be applied
+    time.sleep(2)
+    
+    # Verify the attributes were actually set
+    if not verify_node_attributes_applied(lom):
+        logger.error(f"[{lom}] Node attributes verification failed after setting")
+        return False
+    
+    logger.info(f"[{lom}] Successfully set and verified all node attributes")
+    return True
+
+
+def verify_node_attributes_applied(lom: str) -> bool:
+    """Verify that all required node attributes are properly applied."""
+    logger.info(f"[{lom}] Verifying node attributes are properly applied")
+    attr_output = run_cmd(["sudo", CHECKFIRMWARE_EXEC, "getattributes", "--nodes", lom])
+    
+    if not attr_output:
+        logger.error(f"[{lom}] Failed to get node attributes for verification")
+        return False
+    
+    # Log the complete getattributes output to the log file
+    logger.info(f"[{lom}] Complete getattributes output:")
+    for line in attr_output.strip().split('\n'):
+        logger.info(f"[{lom}] ATTR: {line}")
+    
+    # Parse and check attributes
+    current_attributes = parse_attributes_output(attr_output)
+    logger.info(f"[{lom}] Parsed attributes: {current_attributes}")
+    
+    failed_attributes = []
+    
+    for attr_name, expected_value in NODE_ATTRIBUTES_VERIFY.items():
+        current_value = current_attributes.get(attr_name, "").lower()
+        expected_lower = expected_value.lower()
+        
+        if current_value != expected_lower:
+            failed_attributes.append(f"{attr_name}: expected '{expected_value}', got '{current_value}'")
+    
+    if failed_attributes:
+        logger.error(f"[{lom}] Node attributes verification failed:")
+        for failed_attr in failed_attributes:
+            logger.error(f"[{lom}]   - {failed_attr}")
+        return False
+    
+    logger.info(f"[{lom}] All required node attributes are properly applied and verified")
+    return True
+
+
+def set_node_attributes_with_retry(lom: str, max_retries: int = 3) -> bool:
+    """Set node attributes with retry logic to ensure they are properly applied."""
+    for attempt in range(max_retries):
+        logger.info(f"[{lom}] Setting node attributes - attempt {attempt + 1}/{max_retries}")
+        
+        if set_node_attributes(lom):
+            logger.info(f"[{lom}] Node attributes successfully set and verified on attempt {attempt + 1}")
+            return True
+        
+        if attempt < max_retries - 1:
+            logger.warning(f"[{lom}] Node attributes failed on attempt {attempt + 1}, retrying...")
+            time.sleep(5)  # Wait before retry
+        else:
+            logger.error(f"[{lom}] Node attributes failed after {max_retries} attempts")
+    
+    return False
+
+
+def ensure_server_powered_on(lom: str, hostname: str = None) -> bool:
+    """Ensure server is powered on before firmware deployment."""
+    try:
+        ztp_target = hostname if hostname else lom
+        logger.info(f"[{lom}] Checking power status using ZTP target: {ztp_target}")
+        
+        server_action = ZTP.Actions(ztp_target)
+        
+        if not (hasattr(server_action, 'hardware') and server_action.hardware and "hp" in server_action.hardware):
+            logger.warning(f"[{lom}] Not an HP/HPE system or hardware type unknown: {getattr(server_action, 'hardware', 'Unknown')}")
             return False
+            
+        from app.ZTP.hphpe import HpHpeServer
+        myserver = HpHpeServer(server_action.lomip, server_action.lomuser, server_action.lompass)
+        
+        power_status = myserver.get_power_status()
+        logger.info(f"[{lom}] Current power status: {power_status}")
+        
+        if power_status.lower() != "on":
+            logger.info(f"[{lom}] Server is {power_status}, powering on")
+            myserver.set_power_on()
+            logger.info(f"[{lom}] Waiting 60 seconds for server to stabilize")
+            time.sleep(60)
+            
+            # Verify power status
+            new_power_status = myserver.get_power_status()
+            logger.info(f"[{lom}] Power status after power-on: {new_power_status}")
+        else:
+            logger.info(f"[{lom}] Server is already powered on")
+            time.sleep(10)  # Brief wait for SmartUpdate Manager
+            
+        del myserver
+        return True
+        
+    except Exception as e:
+        logger.warning(f"[{lom}] Could not manage server power: {e}")
+        return False
+
+
+def clean_add_node_with_attributes(lom: str, username: str, password: str, node_type: str) -> bool:
+    """Remove node if exists, then add node (attributes set separately)."""
+    logger.info(f"[{lom}] Performing clean node addition (remove if exists, then add)")
+    
+    # Always attempt to remove the node first (ignore failures)
+    logger.info(f"[{lom}] Removing node if it exists")
+    run_cmd(["sudo", CHECKFIRMWARE_EXEC, "delete", "--nodes", lom])
+    
+    # Add the node
+    logger.info(f"[{lom}] Adding node")
+    if not run_cmd([
+        "sudo", CHECKFIRMWARE_EXEC, "add", "--nodes", lom,
+        f"user={username}", f"password={shlex.quote(password)}", f"type={node_type}"
+    ]):
+        logger.error(f"[{lom}] Failed to add node")
+        return False
+    
+    logger.info(f"[{lom}] Node added successfully")
+    return True
+
+
+def add_node_with_attributes(lom: str, username: str, password: str, node_type: str) -> bool:
+    """Add a node and immediately set required attributes."""
+    # Add the node
+    if not run_cmd([
+        "sudo", CHECKFIRMWARE_EXEC, "add", "--nodes", lom,
+        f"user={username}", f"password={shlex.quote(password)}", f"type={node_type}"
+    ]):
+        return False
+    
+    # Set attributes immediately after adding
+    return set_node_attributes(lom)
+
+
+def verify_and_set_node_attributes(lom: str) -> bool:
+    """Verify and ensure node attributes are properly set for deployment."""
+    # Get current attributes
+    logger.info(f"[{lom}] Verifying node attributes before deployment")
+    attr_output = run_cmd(["sudo", CHECKFIRMWARE_EXEC, "getattributes", "--nodes", lom])
+    
+    if not attr_output:
+        logger.warning(f"[{lom}] Failed to get node attributes, attempting to set them anyway")
+        return set_node_attributes_with_retry(lom)
+    
+    # Log the complete getattributes output to the log file
+    logger.info(f"[{lom}] Current getattributes output before deployment:")
+    for line in attr_output.strip().split('\n'):
+        logger.info(f"[{lom}] ATTR: {line}")
+    
+    # Parse and check attributes
+    current_attributes = parse_attributes_output(attr_output)
+    missing_or_incorrect = []
+    
+    for attr_name, expected_value in NODE_ATTRIBUTES_VERIFY.items():
+        current_value = current_attributes.get(attr_name, "").lower()
+        expected_lower = expected_value.lower()
+        
+        if current_value != expected_lower:
+            missing_or_incorrect.append(f"{attr_name}={NODE_ATTRIBUTES_SET[attr_name]}")
+    
+    # Set any missing/incorrect attributes
+    if missing_or_incorrect:
+        logger.info(f"[{lom}] Setting missing attributes: {', '.join(missing_or_incorrect)}")
+        cmd = ["sudo", CHECKFIRMWARE_EXEC, "setattributes", "--nodes", lom] + missing_or_incorrect
+        return bool(run_cmd(cmd))
     
     logger.info(f"[{lom}] All required node attributes are properly set")
     return True
 
 
 def checkfirmware_service(lom: str, username: str, password: str, node_type: str, node_gen: str, deploy: bool, hostname: str = None) -> Dict:
-    """Execute firmware check service for a node."""
-    start_time = time.time()  # Track start time
+    """Execute firmware check service for a node following the specified workflow."""
+    start_time = time.time()
     logger.info(f"Starting checkfirmware service for: {lom}, deploy={deploy}")
+    
     result = {
         "node": lom,
         "status": None,
-        "status_detail": None,  # Detailed node status for metadata
+        "status_detail": None,
         "inventory_report": None,
         "deploy_status": None,
         "report_paths": None,
         "html_report_path": None,
-        "html_report_url": None,  # HTTP URL to access the HTML report
-        "checkfirmware_PRE_report": None,  # Pre-deployment report (only when deploy=True)
-        "checkfirmware_report": None,  # Main report (post-deployment if deploy=True, standard if deploy=False)
-        "checkfirmware_execution_time": None,  # Execution time in formatted string
+        "html_report_url": None,
+        "checkfirmware_PRE_report": None,
+        "checkfirmware_report": None,
+        "checkfirmware_execution_time": None,
         "success": False,
         "execution_time_seconds": 0.0,
         "execution_time_formatted": "0m 0s",
     }
 
+    # Step 1: Prepare report directories
     base_dir, reports_dir, temp_dir, timestamp = prepare_report_directories(lom)
-
-    logger.info(f"[{lom}] Setting report_dir to {reports_dir}")
-    if not run_cmd(["sudo", CHECKFIRMWARE_EXEC, "setattributes", "--session", f"report_dir={reports_dir}"]):
-        logger.error(f"[{lom}] Failed to set report_dir to {reports_dir}")
-        exec_time, exec_time_str = calculate_execution_time(start_time)
-        result.update({"status": "Failed to set report_dir", "execution_time_seconds": exec_time, "execution_time_formatted": exec_time_str})
-        return result
-
     BASELINE_PATH = f"/pub/spp/{node_gen}_spp_current/packages"
     logger.info(f"[{lom}] Using BASELINE_PATH: {BASELINE_PATH}")
 
+    # Step 2: Check current node status (with --details)
+    logger.info(f"[{lom}] Checking current node status with details")
     output = get_node_status(lom)
-    status = parse_node_status(output, lom) if output else None
+    initial_status = parse_node_status(output, lom) if output else None
+    if initial_status:
+        logger.info(f"[{lom}] Initial node status: {initial_status}")
 
-    if status and "incorrect username/password" in status.lower():
-        logger.info(f"[{lom}] Authentication failure detected, attempting to delete and re-add node")
-        delete_cmd = ["sudo", CHECKFIRMWARE_EXEC, "delete", "--nodes", lom]
-        if not run_cmd(delete_cmd):
-            exec_time, exec_time_str = calculate_execution_time(start_time)
-            result.update({"status": "Failed to delete node after authentication failure", "execution_time_seconds": exec_time, "execution_time_formatted": exec_time_str})
-            return result
-        
-        # Re-add the node
-        if not run_cmd([
-                "sudo",
-                CHECKFIRMWARE_EXEC,
-                "add",
-                "--nodes",
-                lom,
-                f"user={username}",
-                f"password={shlex.quote(password)}",
-                f"type={node_type}",
-            ]):
-            exec_time, exec_time_str = calculate_execution_time(start_time)
-            result.update({"status": "Failed to re-add node after authentication failure", "execution_time_seconds": exec_time, "execution_time_formatted": exec_time_str})
-            return result
-        
-        # IMMEDIATELY set attributes after node is added - BEFORE any other smartupdate commands
-        logger.info(f"[{lom}] Setting attributes immediately after re-adding node")
-        set_attr_cmd = ["sudo", CHECKFIRMWARE_EXEC, "setattributes", "--nodes", lom, "ignore_warnings=true", "ignore_tpm=true", "failed_dependency=OMITHOST", "skip_prereqs=true", "action=ifneeded"]
-        logger.info(f"[{lom}] Running setattributes command: {' '.join(set_attr_cmd)}")
-        if not run_cmd(set_attr_cmd):
-            logger.warning(f"[{lom}] Failed to set attributes immediately after re-adding node")
-        else:
-            logger.info(f"[{lom}] Successfully set attributes after re-adding node")
-        
-        # Immediately check what attributes were actually set
-        logger.info(f"[{lom}] Checking attributes immediately after setting them")
-        get_attr_cmd = ["sudo", CHECKFIRMWARE_EXEC, "getattributes", "--nodes", lom]
-        logger.info(f"[{lom}] Running getattributes command: {' '.join(get_attr_cmd)}")
-        attr_check_output = run_cmd(get_attr_cmd)
-        if attr_check_output:
-            logger.info(f"[{lom}] Immediate getattributes output after re-adding node:")
-            logger.info(f"[{lom}] ATTRIBUTES START")
-            logger.info(attr_check_output)
-            logger.info(f"[{lom}] ATTRIBUTES END")
-        else:
-            logger.warning(f"[{lom}] Failed to get attributes immediately after setting them")
-            
-        # Verify attributes are properly set
-        if not verify_and_set_node_attributes(lom):
-            logger.error(f"[{lom}] Failed to verify/set required node attributes")
-            
-        # Now get status after attributes are set
-        output = get_node_status(lom)
-        status = parse_node_status(output, lom) if output else None
-
-    if not status:
-        logger.info(f"[{lom}] Node not found — attempting to add")
-        if not run_cmd(
-            [
-                "sudo",
-                CHECKFIRMWARE_EXEC,
-                "add",
-                "--nodes",
-                lom,
-                f"user={username}",
-                f"password={shlex.quote(password)}",
-                f"type={node_type}",
-            ]
-        ):
-            exec_time, exec_time_str = calculate_execution_time(start_time)
-            result.update({"status": "Failed to add node", "execution_time_seconds": exec_time, "execution_time_formatted": exec_time_str})
-            return result
-        
-        # IMMEDIATELY set attributes after node is added - BEFORE any other smartupdate commands
-        logger.info(f"[{lom}] Setting attributes immediately after adding new node")
-        set_attr_cmd = ["sudo", CHECKFIRMWARE_EXEC, "setattributes", "--nodes", lom, "ignore_warnings=true", "ignore_tmp=true", "failed_dependency=OMITHOST", "skip_prereqs=true", "action=ifneeded"]
-        logger.info(f"[{lom}] Running setattributes command: {' '.join(set_attr_cmd)}")
-        if not run_cmd(set_attr_cmd):
-            logger.warning(f"[{lom}] Failed to set attributes immediately after adding new node")
-        else:
-            logger.info(f"[{lom}] Successfully set attributes after adding new node")
-        
-        # Immediately check what attributes were actually set
-        logger.info(f"[{lom}] Checking attributes immediately after setting them")
-        get_attr_cmd = ["sudo", CHECKFIRMWARE_EXEC, "getattributes", "--nodes", lom]
-        logger.info(f"[{lom}] Running getattributes command: {' '.join(get_attr_cmd)}")
-        attr_check_output = run_cmd(get_attr_cmd)
-        if attr_check_output:
-            logger.info(f"[{lom}] Immediate getattributes output after adding new node:")
-            logger.info(f"[{lom}] ATTRIBUTES START")
-            logger.info(attr_check_output)
-            logger.info(f"[{lom}] ATTRIBUTES END")
-        else:
-            logger.warning(f"[{lom}] Failed to get attributes immediately after setting them")
-            
-        # Verify attributes are properly set
-        if not verify_and_set_node_attributes(lom):
-            logger.error(f"[{lom}] Failed to verify/set required node attributes")
-            
-        # Now get status after attributes are set
-        output = get_node_status(lom)
-        status = parse_node_status(output, lom) if output else None
-
-    if status and "incorrect username/password" in status.lower():
+    # Step 3: Clean node management - always remove then re-add
+    logger.info(f"[{lom}] Performing clean node management (remove + add)")
+    if not clean_add_node_with_attributes(lom, username, password, node_type):
         exec_time, exec_time_str = calculate_execution_time(start_time)
-        result.update({"status": "Failed to authenticate node", "execution_time_seconds": exec_time, "execution_time_formatted": exec_time_str})
+        result.update({"status": "Failed to clean add node", "execution_time_seconds": exec_time, "execution_time_formatted": exec_time_str})
         return result
 
+    # Step 4: Set node attributes (CRITICAL - nothing proceeds if this fails)
+    logger.info(f"[{lom}] Setting node attributes (CRITICAL STEP)")
+    if not set_node_attributes_with_retry(lom, max_retries=3):
+        exec_time, exec_time_str = calculate_execution_time(start_time)
+        result.update({"status": "CRITICAL FAILURE: Failed to set node attributes after retries", "execution_time_seconds": exec_time, "execution_time_formatted": exec_time_str})
+        logger.critical(f"[{lom}] STOPPING EXECUTION - Node attributes could not be set properly")
+        return result
+
+    # Step 5: Set session attributes
+    logger.info(f"[{lom}] Setting session attributes")
+    if not set_session_attributes(reports_dir, lom):
+        exec_time, exec_time_str = calculate_execution_time(start_time)
+        result.update({"status": "Failed to set session attributes", "execution_time_seconds": exec_time, "execution_time_formatted": exec_time_str})
+        return result
+
+    # Step 6: Run inventory
+    logger.info(f"[{lom}] Running inventory")
     inv_cmd = ["sudo", CHECKFIRMWARE_EXEC, "inventory", "--nodes", lom, "--baselines", BASELINE_PATH]
     inventory_report = run_cmd(inv_cmd)
 
-    if inventory_report and wait_for_inventory_progress(lom):
+    if inventory_report and wait_for_process_completion(lom, "Inventory", ["inventory started"], 30):
         result["success"] = True
         logger.info(f"[{lom}] Inventory completed successfully")
     else:
         exec_time, exec_time_str = calculate_execution_time(start_time)
-        result.update({"status": status or "Inventory timeout or failed", "inventory_report": inventory_report, "execution_time_seconds": exec_time, "execution_time_formatted": exec_time_str})
+        result.update({"status": "Inventory timeout or failed", "inventory_report": inventory_report, "execution_time_seconds": exec_time, "execution_time_formatted": exec_time_str})
         return result
 
+    # Step 7: Generate reports and HTML page
+    logger.info(f"[{lom}] Generating reports")
     report_paths = []
-    # Generate only deploy preview CSV report using the new command format
-    # This command generates only the CSV file with installable components information
     report_cmd = ["sudo", CHECKFIRMWARE_EXEC, "generatereports", "--type", "Installables", "--output", "csv", "--nodes", lom]
     report_output = run_cmd(report_cmd)
 
     if report_output:
         logger.info(f"[{lom}] Deploy preview CSV report generated successfully")
-        # Log first few lines of output for debugging without overwhelming the log
-        output_lines = report_output.strip().split('\n')
-        if len(output_lines) > 3:
-            logger.debug(f"[{lom}] Report output preview: {output_lines[0]}... ({len(output_lines)} lines total)")
-        else:
-            logger.debug(f"[{lom}] Report output: {report_output.strip()}")
-            
         for path in parse_report_paths(report_output, lom):
-            # For files, move them directly to reports_dir
             path_obj = Path(path)
             if path_obj.is_file():
                 dest_path = Path(reports_dir) / path_obj.name
                 if moved_path := move_and_set_permissions(str(path), str(dest_path), lom):
                     report_paths.append(moved_path)
 
-    # Generate HTML report from deploy preview CSV generated by smartupdate generatereports --type Installables --output csv
+    # Step 8: Create HTML page
     html_report_path = None
     html_report_url = None
     if result["success"] and report_paths:
-        # Calculate run time so far (this is for pre-deployment report)
         _, current_execution_time_formatted = calculate_execution_time(start_time)
         
-        # Determine if update is required based on node status
-        update_required = status and ("update required" in status.lower() or "update" in status.lower())
+        # Get current status to determine if update is required
+        current_output = get_node_status(lom)
+        current_status = parse_node_status(current_output, lom) if current_output else None
+        update_required = current_status and ("update required" in current_status.lower() or "update" in current_status.lower())
         
         html_report_path = generate_html_report(lom, reports_dir, base_dir, node_gen, BASELINE_PATH, 
                                                run_time=current_execution_time_formatted, 
-                                               update_required=update_required)
+                                               update_required=update_required, current_node_status=current_status)
         if html_report_path:
             html_report_url = generate_http_url(html_report_path)
             if html_report_url:
                 logger.info(f"[{lom}] Generated HTTP URL for report access: {html_report_url}")
                 
-            # Set PRE report if this is a deployment, otherwise set as main report
             if deploy:
                 result["checkfirmware_PRE_report"] = html_report_url
                 logger.info(f"[{lom}] Set pre-deployment report URL: {html_report_url}")
@@ -698,157 +827,49 @@ def checkfirmware_service(lom: str, username: str, password: str, node_type: str
                 result["checkfirmware_report"] = html_report_url
                 logger.info(f"[{lom}] Set main report URL: {html_report_url}")
 
-    # Capture final node status for detailed reporting
-    final_output = get_node_status(lom)
-    final_status = parse_node_status(final_output, lom) if final_output else None
-
-    # Ensure final directory permissions are set correctly
+    # Step 9: Ensure reports are in correct location with proper permissions
+    logger.info(f"[{lom}] Ensuring proper report permissions")
     try:
         subprocess.run(["sudo", "chmod", "-R", "755", base_dir], check=True)
-        logger.info(f"[{lom}] Final permission check completed for {base_dir}")
+        logger.info(f"[{lom}] Set proper permissions for {base_dir}")
     except subprocess.CalledProcessError as e:
-        logger.warning(f"[{lom}] Failed to set final directory permissions: {e.stderr}")
+        logger.warning(f"[{lom}] Failed to set directory permissions: {e.stderr}")
 
-    # Remove temporary directory (no longer needed since we're writing directly to reports_dir)
+    # Remove temporary directory
     try:
         subprocess.run(["sudo", "rm", "-rf", temp_dir], check=True)
         logger.info(f"[{lom}] Removed temporary report directory: {temp_dir}")
     except subprocess.CalledProcessError as e:
         logger.error(f"[{lom}] Failed to remove temporary report directory {temp_dir}: {e.stderr}")
 
+    # Step 10: If deploy=True, perform deployment workflow
     if deploy and result["success"]:
-        # Verify node attributes before deployment
-        logger.info(f"[{lom}] Verifying node attributes before deployment")
-        if not verify_and_set_node_attributes(lom):
-            logger.error(f"[{lom}] Node attributes verification failed, proceeding anyway")
+        logger.info(f"[{lom}] Starting deployment workflow")
         
-        # Ensure server is powered on before firmware deployment
-        try:
-            logger.info(f"[{lom}] Ensuring server is powered on before firmware deployment")
-            # Use hostname for ZTP Actions if provided, otherwise fall back to lom
-            ztp_target = hostname if hostname else lom
-            logger.info(f"[{lom}] Using ZTP target: {ztp_target}")
-            
-            # Use the existing ZTP pattern - just pass the hostname as a string
-            # ZTP.Actions can handle a hostname string and will fetch network data
-            server_action = ZTP.Actions(ztp_target)
-            
-            # Check power using ztp_power_off pattern but for getting status
-            if hasattr(server_action, 'hardware') and server_action.hardware:
-                if server_action.hardware == "dell":
-                    from app.ZTP.dell import DellServer
-                    myserver = DellServer(server_action.lomip, server_action.lomuser, server_action.lompass)
-                elif "hp" in server_action.hardware:
-                    from app.ZTP.hphpe import HpHpeServer
-                    myserver = HpHpeServer(server_action.lomip, server_action.lomuser, server_action.lompass)
-                else:
-                    logger.warning(f"[{lom}] Unknown hardware type: {server_action.hardware}")
-                    myserver = None
-                
-                if myserver:
-                    power_status = myserver.get_power_status()
-                    logger.info(f"[{lom}] Current power status: {power_status}")
-                    
-                    if power_status.lower() != "on":
-                        logger.info(f"[{lom}] Server is {power_status}, powering on before deployment")
-                        myserver.set_power_on()
-                        # Wait longer for server to fully boot and stabilize
-                        logger.info(f"[{lom}] Waiting 60 seconds for server to fully power on and stabilize")
-                        time.sleep(60)
-                        
-                        # Verify power is on and stable
-                        for attempt in range(3):
-                            new_power_status = myserver.get_power_status()
-                            logger.info(f"[{lom}] Power status check {attempt + 1}/3: {new_power_status}")
-                            if new_power_status.lower() == "on":
-                                break
-                            time.sleep(20)
-                        
-                        logger.info(f"[{lom}] Final power status after power-on: {new_power_status}")
-                    else:
-                        logger.info(f"[{lom}] Server is already powered on")
-                        # Even if already on, wait a bit to ensure SmartUpdate Manager recognizes it
-                        logger.info(f"[{lom}] Waiting 10 seconds for SmartUpdate Manager to recognize power state")
-                        time.sleep(10)
-                    del myserver
-            else:
-                logger.warning(f"[{lom}] Could not determine hardware type for power management")
-                
-        except Exception as e:
-            logger.warning(f"[{lom}] Could not manage server power: {e}")
-            logger.warning(f"[{lom}] Proceeding with deployment anyway")
+        # Perform deployment with retry logic
+        deployment_result = perform_deployment_with_retry(lom, hostname)
+        result["deploy_status"] = deployment_result
         
-        dep_cmd = ["sudo", CHECKFIRMWARE_EXEC, "deploy", "--nodes", lom]
-        logger.info(f"[{lom}] Starting firmware deployment with command: {' '.join(dep_cmd)}")
-        deploy_result = run_cmd(dep_cmd, return_dict=True)
-        result["deploy_status"] = deploy_result
-        
-        # Log detailed deployment results
-        if deploy_result and deploy_result.get("success"):
-            logger.info(f"[{lom}] Firmware deployment command completed successfully")
-            if deploy_result.get("output"):
-                logger.info(f"[{lom}] Deployment output: {deploy_result['output']}")
+        # Generate post-deployment reports if deployment was successful
+        if deployment_result.get("overall_success"):
+            logger.info(f"[{lom}] Deployment successful, generating post-deployment reports")
             
-            # Wait for deployment to complete by monitoring node status
-            logger.info(f"[{lom}] Monitoring deployment progress...")
-            deployment_completed = wait_for_deployment_progress(lom)
-            
-            if deployment_completed:
-                logger.info(f"[{lom}] Deployment monitoring completed")
-                # Get final deployment status
-                final_deploy_output = get_node_status(lom)
-                final_deploy_status = parse_node_status(final_deploy_output, lom) if final_deploy_output else None
-                
-                if final_deploy_status:
-                    logger.info(f"[{lom}] Final deployment status: {final_deploy_status}")
-                    result["final_deploy_status"] = final_deploy_status
-                    
-                    # Check if deployment was successful based on final status
-                    if any(keyword in final_deploy_status.lower() for keyword in ["success", "completed", "up to date", "current"]):
-                        logger.info(f"[{lom}] Deployment appears successful based on final status")
-                        result["deploy_monitoring_success"] = True
-                    elif any(keyword in final_deploy_status.lower() for keyword in ["failed", "error", "timeout"]):
-                        logger.warning(f"[{lom}] Deployment may have failed based on final status")
-                        result["deploy_monitoring_success"] = False
-                    else:
-                        logger.info(f"[{lom}] Deployment status unclear, proceeding with post-deployment inventory")
-                        result["deploy_monitoring_success"] = True  # Assume success for now
-                else:
-                    logger.warning(f"[{lom}] Could not get final deployment status")
-                    result["deploy_monitoring_success"] = True  # Assume success for now
-            else:
-                logger.warning(f"[{lom}] Deployment monitoring timed out, but proceeding with post-deployment steps")
-                result["deploy_monitoring_success"] = False
-                
-        else:
-            logger.error(f"[{lom}] Firmware deployment command failed")
-            if deploy_result and deploy_result.get("error"):
-                logger.error(f"[{lom}] Deployment error: {deploy_result['error']}")
-            if deploy_result and deploy_result.get("output"):
-                logger.error(f"[{lom}] Deployment output: {deploy_result['output']}")
-            result["deploy_monitoring_success"] = False
-
-        # If deployment was successful, rerun inventory and generate updated reports
-        if deploy_result and deploy_result.get("success"):
-            logger.info(f"[{lom}] Deployment command successful, running post-deployment inventory to get updated firmware status")
-            
-            # Run inventory again to get current firmware status
+            # Run post-deployment inventory
             post_deploy_inv_cmd = ["sudo", CHECKFIRMWARE_EXEC, "inventory", "--nodes", lom, "--baselines", BASELINE_PATH]
             post_deploy_inventory = run_cmd(post_deploy_inv_cmd)
             
-            if post_deploy_inventory and wait_for_inventory_progress(lom):
+            if post_deploy_inventory and wait_for_process_completion(lom, "Post-deployment inventory", ["inventory started"], 30):
                 logger.info(f"[{lom}] Post-deployment inventory completed successfully")
                 result["post_deploy_inventory"] = post_deploy_inventory
                 
                 # Generate updated reports
-                logger.info(f"[{lom}] Generating updated reports after deployment")
                 post_deploy_report_cmd = ["sudo", CHECKFIRMWARE_EXEC, "generatereports", "--type", "Installables", "--output", "csv", "--nodes", lom]
                 post_deploy_report_output = run_cmd(post_deploy_report_cmd)
                 
                 if post_deploy_report_output:
                     logger.info(f"[{lom}] Post-deployment CSV report generated successfully")
                     
-                    # Create a subdirectory for post-deployment reports
+                    # Create subdirectory for post-deployment reports
                     post_deploy_reports_dir = os.path.join(base_dir, "post_deploy_reports")
                     os.makedirs(post_deploy_reports_dir, exist_ok=True)
                     
@@ -860,21 +881,19 @@ def checkfirmware_service(lom: str, username: str, password: str, node_type: str
                             if moved_path := move_and_set_permissions(str(path), str(dest_path), lom):
                                 post_deploy_report_paths.append(moved_path)
                     
-                    # Generate updated HTML report
+                    # Generate post-deployment HTML report
                     if post_deploy_report_paths:
-                        # Calculate run time for post-deployment report
                         _, post_deploy_execution_time_formatted = calculate_execution_time(start_time)
                         
-                        # Check post-deployment status to determine if more updates are needed
-                        final_deploy_output = get_node_status(lom)
-                        final_deploy_status = parse_node_status(final_deploy_output, lom) if final_deploy_output else None
-                        post_deploy_update_required = final_deploy_status and ("update required" in final_deploy_status.lower() or "update" in final_deploy_status.lower())
+                        # Check final status
+                        final_output = get_node_status(lom)
+                        final_status = parse_node_status(final_output, lom) if final_output else None
+                        post_deploy_update_required = final_status and ("update required" in final_status.lower() or "update" in final_status.lower())
                         
                         post_deploy_html_path = generate_html_report(lom, post_deploy_reports_dir, base_dir, node_gen, BASELINE_PATH,
                                                                    run_time=post_deploy_execution_time_formatted,
-                                                                   update_required=post_deploy_update_required)
+                                                                   update_required=post_deploy_update_required, current_node_status=final_status)
                         if post_deploy_html_path:
-                            # Rename to indicate it's post-deployment
                             html_filename = Path(post_deploy_html_path).name
                             post_deploy_html_filename = f"post_deploy_{html_filename}"
                             final_post_deploy_html_path = os.path.join(base_dir, post_deploy_html_filename)
@@ -882,41 +901,59 @@ def checkfirmware_service(lom: str, username: str, password: str, node_type: str
                             set_readable_permissions(final_post_deploy_html_path, lom)
                             
                             post_deploy_html_url = generate_http_url(final_post_deploy_html_path)
-                            
-                            result["post_deploy_report_paths"] = post_deploy_report_paths
-                            result["post_deploy_html_report_path"] = final_post_deploy_html_path
                             result["post_deploy_html_report_url"] = post_deploy_html_url
-                            result["checkfirmware_report"] = post_deploy_html_url  # Set as main report for deployment
+                            result["checkfirmware_report"] = post_deploy_html_url  # Set as main report
                             
                             logger.info(f"[{lom}] Generated post-deployment HTML report: {final_post_deploy_html_path}")
                             if post_deploy_html_url:
                                 logger.info(f"[{lom}] Post-deployment report URL: {post_deploy_html_url}")
-                                logger.info(f"[{lom}] Set main checkfirmware_report to post-deployment report")
+                                
+                                # Update the original pre-deployment report to include link to post-deployment report
+                                if html_report_path and report_paths:
+                                    logger.info(f"[{lom}] Updating original report with post-deployment link")
+                                    try:
+                                        # Get current values for the updated report
+                                        _, updated_execution_time_formatted = calculate_execution_time(start_time)
+                                        current_output_updated = get_node_status(lom)
+                                        current_status_updated = parse_node_status(current_output_updated, lom) if current_output_updated else None
+                                        update_required_updated = current_status_updated and ("update required" in current_status_updated.lower() or "update" in current_status_updated.lower())
+                                        
+                                        updated_html_report_path = generate_html_report(lom, reports_dir, base_dir, node_gen, BASELINE_PATH, 
+                                                                                       run_time=updated_execution_time_formatted, 
+                                                                                       update_required=update_required_updated, current_node_status=current_status_updated,
+                                                                                       post_deploy_report_url=post_deploy_html_url)
+                                        if updated_html_report_path:
+                                            logger.info(f"[{lom}] Successfully updated original report with post-deployment link")
+                                        else:
+                                            logger.warning(f"[{lom}] Failed to update original report with post-deployment link")
+                                    except Exception as e:
+                                        logger.error(f"[{lom}] Error updating original report: {e}")
                     
-                    # Set permissions for post-deployment reports directory
+                    # Set permissions for post-deployment reports
                     subprocess.run(["sudo", "chmod", "-R", "755", post_deploy_reports_dir], check=True)
-                else:
-                    logger.warning(f"[{lom}] Failed to generate post-deployment reports")
             else:
                 logger.warning(f"[{lom}] Post-deployment inventory failed or timed out")
+
+    # Get final status for result
+    final_output = get_node_status(lom)
+    final_status = parse_node_status(final_output, lom) if final_output else None
 
     # Calculate execution time
     execution_time_seconds, execution_time_formatted = calculate_execution_time(start_time)
     
-    result.update(
-        {
-            "status": status,
-            "status_detail": final_status or status,  # Use final status if available, fallback to original
-            "inventory_report": inventory_report,
-            "report_paths": report_paths if report_paths else None,
-            "html_report_path": html_report_path,
-            "html_report_url": html_report_url,  # HTTP URL for web access
-            "checkfirmware_execution_time": execution_time_formatted,  # Formatted execution time
-            "success": result["success"] and bool(report_paths),
-            "execution_time_seconds": execution_time_seconds,
-            "execution_time_formatted": execution_time_formatted,
-        }
-    )
+    result.update({
+        "status": initial_status or final_status,
+        "status_detail": final_status or initial_status,
+        "inventory_report": inventory_report,
+        "report_paths": report_paths if report_paths else None,
+        "html_report_path": html_report_path,
+        "html_report_url": html_report_url,
+        "checkfirmware_execution_time": execution_time_formatted,
+        "success": result["success"] and bool(report_paths),
+        "execution_time_seconds": execution_time_seconds,
+        "execution_time_formatted": execution_time_formatted,
+    })
     
     logger.info(f"[{lom}] Checkfirmware service completed in {execution_time_formatted}")
     return result
+
