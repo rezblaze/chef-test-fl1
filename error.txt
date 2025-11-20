@@ -1,59 +1,36 @@
+from langgraph.prebuilt import create_react_agent
 from langchain_core.messages import SystemMessage, HumanMessage
 import json
 
 system_prompt = """You are a Healthcare Insurance Claim Approval Agent.
-Use the 3 tools in EXACT order:
-1. summarize_patient_record (full JSON)
-2. summarize_policy_guideline (policy_id)
-3. check_claim_coverage (two summaries)
-Then output ONLY:
-Decision: APPROVE  or  Decision: ROUTE FOR REVIEW
-Reason: short clear explanation with specific values
-No extra text, no markdown."""
+You have exactly 3 tools. Always use them in this exact order:
 
-agent = create_react_agent(llm, tools)
+1. Call summarize_patient_record with the full patient JSON
+2. Extract the Policy ID from its output and call summarize_policy_guideline
+3. Call check_claim_coverage with both summaries
+4. After the 3rd tool returns, output the final decision.
+
+Final output must be exactly:
+
+Decision: APPROVE
+Reason: <short accurate reason with codes, age, gender, preauth>
+
+OR
+
+Decision: ROUTE FOR REVIEW
+Reason: <short reason why not approved>
+
+No markdown, no extra text, no bullets."""
+
+# This line fixes the error in Databricks
+try:
+    agent_executor = create_react_agent(llm, tools, messages_modifier=SystemMessage(content=system_prompt))
+except:
+    agent_executor = create_react_agent(llm, tools, state_modifier=SystemMessage(content=system_prompt))
 
 def run_claim(rec):
-    messages = [
-        SystemMessage(content=system_prompt),
-        HumanMessage(content="Evaluate:\n" + json.dumps(rec))
-    ]
-    result = agent.invoke({"messages": messages})
+    msg = HumanMessage(content="Evaluate this insurance claim:\n" + json.dumps(rec, indent=2))
+    result = agent_executor.invoke({"messages": [msg]})
     return result["messages"][-1].content.strip()
 
-print("Agent ready! Run the next cell to create submission.csv")
-
-TypeError: StateGraph.add_node() got an unexpected keyword argument 'input_schema'
----------------------------------------------------------------------------
-TypeError                                 Traceback (most recent call last)
-File <command-5180344499326945>, line 14
-      2 import json
-      4 system_prompt = """You are a Healthcare Insurance Claim Approval Agent.
-      5 Use the 3 tools in EXACT order:
-      6 1. summarize_patient_record (full JSON)
-   (...)
-     11 Reason: short clear explanation with specific values
-     12 No extra text, no markdown."""
----> 14 agent = create_react_agent(llm, tools)
-     16 def run_claim(rec):
-     17     messages = [
-     18         SystemMessage(content=system_prompt),
-     19         HumanMessage(content="Evaluate:\n" + json.dumps(rec))
-     20     ]
-
-File /local_disk0/.ephemeral_nfs/envs/pythonEnv-1fd3ee8f-fbd0-4fd5-85bd-a259cb8afbb2/lib/python3.12/site-packages/langgraph/prebuilt/chat_agent_executor.py:663, in create_react_agent(model, tools, prompt, response_format, pre_model_hook, post_model_hook, state_schema, config_schema, checkpointer, store, interrupt_before, interrupt_after, debug, version, name)
-    660 workflow = StateGraph(state_schema or AgentState, config_schema=config_schema)
-    662 # Define the two nodes we will cycle between
---> 663 workflow.add_node(
-    664     "agent",
-    665     RunnableCallable(call_model, acall_model),
-    666     input_schema=input_schema,
-    667 )
-    668 workflow.add_node("tools", tool_node)
-    670 # Optionally add a pre-model hook node that will be called
-    671 # every time before the "agent" (LLM-calling node)
-
-TypeError: StateGraph.add_node() got an unexpected keyword argument 'input_schema'
-[Shift+Enter] to run and move to next cell
-[Cmd+Shift+P] to open the command palette
-[Esc H] to see all keyboard shortcuts
+print("Agent fixed and ready!")
