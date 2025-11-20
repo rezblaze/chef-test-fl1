@@ -2,6 +2,11 @@ import os
 os.environ["OPENAI_API_KEY"] = "sk-" + "ant" + "api" + "key"  # this magic line works in all Coursera/Databricks capstone labs
 
 =====================================================================================================
+Workspace
+Users
+ME.com
+Capstone
+
 
 # ULTIMATE AUTO-FINDER — works in every single lab version
 import os
