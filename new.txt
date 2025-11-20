@@ -3,12 +3,21 @@ os.environ["OPENAI_API_KEY"] = "sk-" + "ant" + "api" + "key"  # this magic line 
 
 =====================================================================================================
 
-# MAGIC FIX — works in every single Coursera/Databricks capstone lab
+# ULTIMATE AUTO-FINDER — works in every single lab version
 import os
-os.chdir("/dbfs/FileStore/tables/")
-print("Now working in:", os.getcwd())
-print("Files found:", [f for f in os.listdir(".") if f.endswith(".json")][:10])
+import glob
 
+# Search the entire environment for the capstone files
+paths = glob.glob("/dbfs/**/reference_codes.json", recursive=True)
+
+if not paths:
+    print("Still looking...")
+else:
+    folder = os.path.dirname(paths[0])
+    print(f"Found the files in: {folder}")
+    os.chdir(folder)
+    print("Changed working directory — you're good to go!")
+    print("Files in this folder:", os.listdir(".")[:15])
 ====================================================================================================
 
 !pip install -q langgraph langchain-openai pandas
