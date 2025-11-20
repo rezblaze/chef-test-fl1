@@ -1,264 +1,95 @@
-NameError: name 'null' is not defined
----------------------------------------------------------------------------
-NameError                                 Traceback (most recent call last)
-File <command-5180344499316469>, line 27
-      1 {
-      2   "metadata": {
-      3     "kernelspec": {
-      4       "display_name": "Python 3",
-      5       "language": "python",
-      6       "name": "python3"
-      7     },
-      8     "language_info": {
-      9       "name": "python",
-     10       "version": "3.11"
-     11     }
-     12   },
-     13   "nbformat": 4,
-     14   "nbformat_minor": 2,
-     15   "cells": [
-     16     {
-     17       "cell_type": "markdown",
-     18       "metadata": {},
-     19       "source": [
-     20         "# Capstone 2 – Healthcare Insurance Claim Approval Agent\n",
-     21         "### Fully working solution – passes validation + produces correct submission.csv\n",
-     22         "Uses: gpt-4o-mini (or gpt-4.1-mini), LangGraph ReAct agent, exact 3-tool sequence"
-     23       ]
-     24     },
-     25     {
-     26       "cell_type": "code",
----> 27       "execution_count": null,
-     28       "metadata": {},
-     29       "outputs": [],
-     30       "source": [
-     31         "!pip install -q langgraph langchain-openai pandas python-dateutil"
-     32       ]
-     33     },
-     34     {
-     35       "cell_type": "code",
-     36       "execution_count": null,
-     37       "metadata": {},
-     38       "outputs": [],
-     39       "source": [
-     40         "import json\n",
-     41         "from datetime import datetime\n",
-     42         "import pandas as pd\n",
-     43         "from langchain_openai import ChatOpenAI\n",
-     44         "from langchain_core.tools import tool\n",
-     45         "from langgraph.prebuilt import create_react_agent\n",
-     46         "from langchain_core.messages import HumanMessage\n",
-     47         "\n",
-     48         "# === LLM (use gpt-4o-mini or gpt-4.1-mini) ===\n",
-     49         "llm = ChatOpenAI(model=\"gpt-4o-mini\", temperature=0)\n",
-     50         "\n",
-     51         "# === Load all data ===\n",
-     52         "with open('reference_codes.json') as f:\n",
-     53         "    reference_codes = json.load(f)\n",
-     54         "with open('insurance_policies.json') as f:\n",
-     55         "    policies = json.load(f)\n",
-     56         "with open('validation_records.json') as f:\n",
-     57         "    validation_records = json.load(f)\n",
-     58         "with open('test_records.json') as f:\n",
-     59         "    test_records = json.load(f)\n",
-     60         "\n",
-     61         "# Policy lookup\n",
-     62         "policies_dict = {p['policy_id']: p for p in policies}\n",
-     63         "\n",
-     64         "# === Age calculation (preprocessing – recommended method) ===\n",
-     65         "def calculate_age(dob: str, dos: str) -> int:\n",
-     66         "    birth = datetime.strptime(dob, \"%Y-%m-%d\")\n",
-     67         "    service = datetime.strptime(dos, \"%Y-%m-%d\")\n",
-     68         "    age = service.year - birth.year\n",
-     69         "    if (service.month, service.day) < (birth.month, birth.day):\n",
-     70         "        age -= 1\n",
-     71         "    return age\n",
-     72         "\n",
-     73         "for records in [validation_records, test_records]:\n",
-     74         "    for r in records:\n",
-     75         "        r['age'] = calculate_age(r['date_of_birth'], r['date_of_service'])\n",
-     76         "\n",
-     77         "ref_codes_str = json.dumps(reference_codes, indent=2)"
-     78       ]
-     79     },
-     80     {
-     81       "cell_type": "code",
-     82       "execution_count": null,
-     83       "metadata": {},
-     84       "outputs": [],
-     85       "source": [
-     86         "# === TOOL 1: Summarize Patient Record ===\n",
-     87         "@tool\n",
-     88         "def summarize_patient_record(record_str: str) -> str:\n",
-     89         "    \"\"\"Returns structured patient summary with exact required sections.\"\"\"\n",
-     90         "    prompt = f\"\"\"You are a precise medical summarizer.\n",
-     91         "Reference codes:\n",
-     92         "{ref_codes_str}\n",
-     93         "\n",
-     94         "Patient JSON:\n",
-     95         "{record_str}\n",
-     96         "\n",
-     97         "Output EXACTLY these sections (plain text, no markdown titles):\n",
-     98         "\n",
-     99         "Patient Demographics:\n",
-    100         "- Name: ...\n",
-    101         "- Gender: ...\n",
-    102         "- Age: ...\n",
-    103         "\n",
-    104         "Insurance Policy ID: ...\n",
-    105         "\n",
-    106         "Diagnoses and Descriptions:\n",
-    107         "- ICD10: description\n",
-    108         "\n",
-    109         "Procedures and Descriptions:\n",
-    110         "- CPT: description\n",
-    111         "\n",
-    112         "Preauthorization Status: Preauthorization required: Yes/No, Obtained: Yes/No\n",
-    113         "(If not required → \"Preauthorization not required\")\n",
-    114         "\n",
-    115         "Billed Amount (in USD): ...\n",
-    116         "\n",
-    117         "Date of Service: ...\n",
-    118         "\"\"\"\n",
-    119         "    return llm.invoke([(\"system\", prompt), (\"human\", \"Summarize.\")]).content\n",
-    120         "\n",
-    121         "# === TOOL 2: Summarize Policy Guideline ===\n",
-    122         "@tool\n",
-    123         "def summarize_policy_guideline(policy_id: str) -> str:\n",
-    124         "    \"\"\"Returns structured policy summary.\"\"\"\n",
-    125         "    policy = policies_dict.get(policy_id)\n",
-    126         "    if not policy:\n",
-    127         "        return f\"Policy {policy_id} not found.\"\n",
-    128         "    prompt = f\"\"\"You are an insurance policy expert.\n",
-    129         "Reference codes:\n",
-    130         "{ref_codes_str}\n",
-    131         "\n",
-    132         "Policy data:\n",
-    133         "{json.dumps(policy, indent=2)}\n",
-    134         "\n",
-    135         "Output EXACTLY:\n",
-    136         "Policy Details:\n",
-    137         "- Policy ID: {policy_id}\n",
-    138         "- Plan Name: {policy.get('plan_name', '')}\n",
-    139         "\n",
-    140         "Covered Procedures:\n",
-    141         "Then for each procedure:\n",
-    142         "- Procedure Code and Description: CPT - description\n",
-    143         "  Covered Diagnoses and Descriptions:\n",
-    144         "  - ICD10: description\n",
-    145         "  Gender Restriction: ...\n",
-    146         "  Age Range: lower - (upper-1)\n",
-    147         "  Preauthorization Requirement: Yes/No\n",
-    148         "  Notes on Coverage: ...\n",
-    149         "\"\"\"\n",
-    150         "    return llm.invoke([(\"system\", prompt), (\"human\", \"Summarize.\")]).content\n",
-    151         "\n",
-    152         "# === TOOL 3: Check Claim Coverage ===\n",
-    153         "@tool\n",
-    154         "def check_claim_coverage(patient_summary: str, policy_summary: str) -> str:\n",
-    155         "    \"\"\"Final coverage validation tool.\"\"\"\n",
-    156         "    prompt = f\"\"\"You are a strict claim validator.\n",
-    157         "\n",
-    158         "APPROVE only if ALL are true:\n",
-    159         "• Procedure exists in policy\n",
-    160         "• At least one patient diagnosis is in covered_diagnoses\n",
-    161         "• Age ≥ lower AND < upper (policy range is [lower, upper))\n",
-    162         "• Gender matches or policy = 'Any'\n",
-    163         "• If preauth required → obtained = True\n",
-    164         "\n",
-    165         "Patient summary:\n",
-    166         "{patient_summary}\n",
-    167         "\n",
-    168         "Policy summary:\n",
-    169         "{policy_summary}\n",
-    170         "\n",
-    171         "Output EXACTLY:\n",
-    172         "Coverage Review:\n",
-    173         "- step-by-step checks...\n",
-    174         "\n",
-    175         "Summary of Findings:\n",
-    176         "- each criterion Met/Not Met\n",
-    177         "\n",
-    178         "Final Decision: APPROVE - brief reason  OR  ROUTE FOR REVIEW - brief reason\n",
-    179         "\"\"\"\n",
-    180         "    return llm.invoke([(\"system\", prompt), (\"human\", \"Validate coverage.\")]).content"
-    181       ]
-    182     },
-    183     {
-    184       "cell_type": "code",
-    185       "execution_count": null,
-    186       "metadata": {},
-    187       "outputs": [],
-    188       "source": [
-    189         "# === System Prompt – enforces exact 3-tool sequence & output format ===\n",
-    190         "system_prompt = \"\"\"You are a Healthcare Insurance Claim Approval Agent.\n",
-    191         "\n",
-    192         "You have exactly these 3 tools and MUST use them in this exact order:\n",
-    193         "1. summarize_patient_record → with the full patient JSON string\n",
-    194         "2. summarize_policy_guideline → with the policy_id from the patient record\n",
-    195         "3. check_claim_coverage → with the two summaries\n",
-    196         "\n",
-    197         "After the third tool, output ONLY:\n",
-    198         "\n",
-    199         "Decision: APPROVE  or  Decision: ROUTE FOR REVIEW\n",
-    200         "Reason: concise 2–4 sentence explanation referencing specific values (age, gender, preauth, etc.)\n",
-    201         "\n",
-    202         "Never add markdown, bullets, or extra text outside this format.\n",
-    203         "\"\"\"\n",
-    204         "\n",
-    205         "tools = [summarize_patient_record, summarize_policy_guideline, check_claim_coverage]\n",
-    206         "agent = create_react_agent(llm, tools, messages_modifier=system_prompt)"
-    207       ]
-    208     },
-    209     {
-    210       "cell_type": "code",
-    211       "execution_count": null,
-    212       "metadata": {},
-    213       "outputs": [],
-    214       "source": [
-    215         "# === Helper function ===\n",
-    216         "def process_record(record: dict) -> str:\n",
-    217         "    record_json = json.dumps(record)\n",
-    218         "    response = agent.invoke({\"messages\": [HumanMessage(content=f\"Evaluate this claim:\\n{record_json}\")]})\n",
-    219         "    return response[\"messages\"][-1].content.strip()"
-    220       ]
-    221     },
-    222     {
-    223       "cell_type": "code",
-    224       "execution_count": null,
-    225       "metadata": {},
-    226       "outputs": [],
-    227       "source": [
-    228         "# === OPTIONAL: Test on validation records (should match reference perfectly) ===\n",
-    229         "print(\"Running validation records...\")\n",
-    230         "for rec in validation_records[:2]:  # remove [:2] to run all 10\n",
-    231         "    print(f\"\\n{rec['patient_id']}\")\n",
-    232         "    print(process_record(rec))\n",
-    233         "    print(\"-\"*60)"
-    234       ]
-    235     },
-    236     {
-    237       "cell_type": "code",
-    238       "execution_count": null,
-    239       "metadata": {},
-    240       "outputs": [],
-    241       "source": [
-    242         "# === FINAL: Generate submission.csv for test records ===\n",
-    243         "results = []\n",
-    244         "for rec in test_records:\n",
-    245         "    resp = process_record(rec)\n",
-    246         "    results.append({\"patient_id\": rec[\"patient_id\"], \"generated_response\": resp})\n",
-    247         "\n",
-    248         "submission_df = pd.DataFrame(results)\n",
-    249         "submission_df = submission_df[[\"patient_id\", \"generated_response\"]]\n",
-    250         "submission_df.to_csv(\"submission.csv\", index=False)\n",
-    251         "\n",
-    252         "print(\"submission.csv created!\")\n",
-    253         "display(submission_df)\n",
-    254         "print(\"\\nAll done – submit code.ipynb + submission.csv → you will pass!\")"
-    255       ]
-    256     }
-    257   ]
-    258 }
 
-NameError: name 'null' is not defined
+!pip install -q langgraph langchain-openai pandas
+
+import json, pandas as pd
+from datetime import datetime
+from langchain_openai import ChatOpenAI
+from langchain_core.tools import tool
+from langgraph.prebuilt import create_react_agent
+from langchain_core.messages import HumanMessage
+
+# LLM
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+
+# Load data
+reference_codes = json.load(open('reference_codes.json'))
+policies = json.load(open('insurance_policies.json'))
+validation_records = json.load(open('validation_records.json'))
+test_records = json.load(open('test_records.json'))
+
+# Build policy lookup
+policies_dict = {p['policy_id']: p for p in policies}
+
+# Add age to every record
+def calc_age(dob, dos):
+    b = datetime.strptime(dob, "%Y-%m-%d")
+    s = datetime.strptime(dos, "%Y-%m-%d")
+    age = s.year - b.year
+    if (s.month, s.day) < (b.month, b.day):
+        age -= 1
+    return age
+
+for recs in [validation_records, test_records]:
+    for r in recs:
+        r['age'] = calc_age(r['date_of_birth'], r['date_of_service'])
+
+ref_str = json.dumps(reference_codes, indent=2)
+
+# TOOL 1
+@tool
+def summarize_patient_record(rec_str: str) -> str:
+    prompt = f"""Use reference codes:\n{ref_str}\n\nPatient JSON:\n{rec_str}\n\nOutput exactly:\nPatient Demographics:\n- Name: ...\n- Gender: ...\n- Age: ...\n\nInsurance Policy ID: ...\n\nDiagnoses and Descriptions:\n- ...\n\nProcedures and Descriptions:\n- ...\n\nPreauthorization Status: ...\n\nBilled Amount (in USD): ...\n\nDate of Service: ..."""
+    return llm.invoke([("system", prompt), ("human", "Summarize")]).content
+
+# TOOL 2
+@tool
+def summarize_policy_guideline(policy_id: str) -> str:
+    policy = policies_dict.get(policy_id)
+    if not policy: return "Policy not found"
+    prompt = f"""Policy data:\n{json.dumps(policy, indent=2)}\nReference codes:\n{ref_str}\n\nOutput exactly in this format:\nPolicy Details:\n- Policy ID: ...\n- Plan Name: ...\n\nCovered Procedures:\n- Procedure Code and Description: ...\n  Covered Diagnoses and Descriptions:\n  - ...\n  Gender Restriction: ...\n  Age Range: ... - ...\n  Preauthorization Requirement: ...\n  Notes on Coverage: ..."""
+    return llm.invoke([("system", prompt), ("human", "Summarize")]).content
+
+# TOOL 3
+@tool
+def check_claim_coverage(pat_sum: str, pol_sum: str) -> str:
+    prompt = f"""You approve ONLY if ALL true:\n• Procedure in policy\n• Diagnosis matches\n• Age ≥ lower AND < upper\n• Gender matches or 'Any'\n• Preauth required → obtained\n\nPatient:\n{pat_sum}\n\nPolicy:\n{pol_sum}\n\nOutput exactly:\nCoverage Review: ...\nSummary of Findings: ...\nFinal Decision: APPROVE - reason OR ROUTE FOR REVIEW - reason"""
+    return llm.invoke([("system", prompt), ("human", "Check")]).content
+
+tools = [summarize_patient_record, summarize_policy_guideline, check_claim_coverage]
+
+system_prompt = """You are a Healthcare Insurance Claim Approval Agent.
+Use the 3 tools in EXACT order:
+1. summarize_patient_record (full JSON)
+2. summarize_policy_guideline (policy_id)
+3. check_claim_coverage (two summaries)
+Then output ONLY:
+Decision: APPROVE  or  Decision: ROUTE FOR REVIEW
+Reason: short clear explanation with specific values
+No extra text, no markdown."""
+
+agent = create_react_agent(llm, tools, messages_modifier=system_prompt)
+
+def run_claim(rec):
+    msg = HumanMessage(content="Evaluate:\n" + json.dumps(rec))
+    result = agent.invoke({"messages": [msg]})
+    return result["messages"][-1].content.strip()
+
+print("Agent ready! Run the next cell to create submission.csv")
+
+
+
+====================================================================================================================
+
+# FINAL CELL — RUN THIS TO GENERATE submission.csv
+results = []
+for rec in test_records:
+    print(f"Processing {rec['patient_id']}...")
+    resp = run_claim(rec)
+    results.append({"patient_id": rec["patient_id"], "generated_response": resp})
+
+df = pd.DataFrame(results)[["patient_id", "generated_response"]]
+df.to_csv("submission.csv", index=False)
+print("\nsubmission.csv is ready!")
+display(df)
+
+
