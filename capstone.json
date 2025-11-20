@@ -1,3 +1,22 @@
+Note: you may need to restart the kernel using %restart_python or dbutils.library.restartPython() to use updated packages.
+OpenAIError: The api_key client option must be set either by passing api_key to the client or by setting the OPENAI_API_KEY environment variable
+File <command-5180344499317710>, line 11
+      8 from langchain_core.messages import HumanMessage
+     10 # LLM
+---> 11 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+     13 # Load data
+     14 reference_codes = json.load(open('reference_codes.json'))
+File /local_disk0/.ephemeral_nfs/envs/pythonEnv-1fd3ee8f-fbd0-4fd5-85bd-a259cb8afbb2/lib/python3.12/site-packages/openai/_client.py:116, in OpenAI.__init__(self, api_key, organization, project, base_url, websocket_base_url, timeout, max_retries, default_headers, default_query, http_client, _strict_response_validation)
+    114     api_key = os.environ.get("OPENAI_API_KEY")
+    115 if api_key is None:
+--> 116     raise OpenAIError(
+    117         "The api_key client option must be set either by passing api_key to the client or by setting the OPENAI_API_KEY environment variable"
+    118     )
+    119 self.api_key = api_key
+    121 if organization is None:
+
+
+
 {
   "metadata": {
     "kernelspec": {
