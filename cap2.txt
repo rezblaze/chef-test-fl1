@@ -1,0 +1,106 @@
+  ======================CELL1============================
+
+import json
+import pandas as pd
+from datetime import datetime
+from typing import Dict, Any
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langgraph.graph import StateGraph, MessagesState
+from langgraph.prebuilt import ToolNode, tools_condition
+from langchain_core.tools import tool
+import os
+os.environ["OPENAI_API_KEY"] = "sk-" + "ant" + "api" + "key"
+
+  ======================CELL2============================
+
+  # LLM
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+
+# Load data
+reference_codes = json.load(open('reference_codes.json'))
+policies = json.load(open('insurance_policies.json'))
+validation_records = json.load(open('validation_records.json'))
+test_records = json.load(open('test_records.json'))
+
+# Build policy lookup
+policies_dict = {p['policy_id']: p for p in policies}
+
+# Add age to every record
+def calc_age(dob, dos):
+    b = datetime.strptime(dob, "%Y-%m-%d")
+    s = datetime.strptime(dos, "%Y-%m-%d")
+    age = s.year - b.year
+    if (s.month, s.day) < (b.month, b.day):
+        age -= 1
+    return age
+
+for recs in [validation_records, test_records]:
+    for r in recs:
+        r['age'] = calc_age(r['date_of_birth'], r['date_of_service'])
+
+ref_str = json.dumps(reference_codes, indent=2)
+
+# TOOL 1
+@tool
+def summarize_patient_record(rec_str: str) -> str:
+    prompt = f"""Use reference codes:\n{ref_str}\n\nPatient JSON:\n{rec_str}\n\nOutput exactly:\nPatient Demographics:\n- Name: ...\n- Gender: ...\n- Age: ...\n\nInsurance Policy ID: ...\n\nDiagnoses and Descriptions:\n- ...\n\nProcedures and Descriptions:\n- ...\n\nPreauthorization Status: ...\n\nBilled Amount (in USD): ...\n\nDate of Service: ..."""
+    return llm.invoke([("system", prompt), ("human", "Summarize")]).content
+
+# TOOL 2
+@tool
+def summarize_policy_guideline(policy_id: str) -> str:
+    policy = policies_dict.get(policy_id)
+    if not policy: return "Policy not found"
+    prompt = f"""Policy data:\n{json.dumps(policy, indent=2)}\nReference codes:\n{ref_str}\n\nOutput exactly in this format:\nPolicy Details:\n- Policy ID: ...\n- Plan Name: ...\n\nCovered Procedures:\n- Procedure Code and Description: ...\n  Covered Diagnoses and Descriptions:\n  - ...\n  Gender Restriction: ...\n  Age Range: ... - ...\n  Preauthorization Requirement: ...\n  Notes on Coverage: ..."""
+    return llm.invoke([("system", prompt), ("human", "Summarize")]).content
+
+# TOOL 3
+@tool
+def check_claim_coverage(pat_sum: str, pol_sum: str) -> str:
+    prompt = f"""You approve ONLY if ALL true:\n• Procedure in policy\n• Diagnosis matches\n• Age ≥ lower AND < upper\n• Gender matches or 'Any'\n• Preauth required → obtained\n\nPatient:\n{pat_sum}\n\nPolicy:\n{pol_sum}\n\nOutput exactly:\nCoverage Review: ...\nSummary of Findings: ...\nFinal Decision: APPROVE - reason OR ROUTE FOR REVIEW - reason"""
+    return llm.invoke([("system", prompt), ("human", "Check")]).content
+
+tools = [summarize_patient_record, summarize_policy_guideline, check_claim_coverage]
+
+system_prompt = """You are a Healthcare Insurance Claim Approval Agent.
+Use the 3 tools in EXACT order:
+1. summarize_patient_record (full JSON)
+2. summarize_policy_guideline (policy_id)
+3. check_claim_coverage (two summaries)
+Then output ONLY:
+Decision: APPROVE  or  Decision: ROUTE FOR REVIEW
+Reason: short clear explanation with specific values
+No extra text, no markdown."""
+
+agent = create_react_agent(llm, tools, messages_modifier=system_prompt)
+
+def run_claim(rec):
+    msg = HumanMessage(content="Evaluate:\n" + json.dumps(rec))
+    result = agent.invoke({"messages": [msg]})
+    return result["messages"][-1].content.strip()
+
+print("Agent ready! Run the next cell to create submission.csv")
+
+  FileNotFoundError: [Errno 2] No such file or directory: 'reference_codes.json'
+[Trace ID: 00-d646d9e76db9b812b65289b62b3710fb-b25589fc6ccd64aa-00]
+---------------------------------------------------------------------------
+FileNotFoundError                         Traceback (most recent call last)
+File <command-5180344499319098>, line 5
+      2 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+      4 # Load data
+----> 5 reference_codes = json.load(open('reference_codes.json'))
+      6 policies = json.load(open('insurance_policies.json'))
+      7 validation_records = json.load(open('validation_records.json'))
+
+File /databricks/python/lib/python3.12/site-packages/IPython/core/interactiveshell.py:324, in _modified_open(file, *args, **kwargs)
+    317 if file in {0, 1, 2}:
+    318     raise ValueError(
+    319         f"IPython won't let you open fd={file} by default "
+    320         "as it is likely to crash IPython. If you know what you are doing, "
+    321         "you can use builtins' open."
+    322     )
+--> 324 return io_open(file, *args, **kwargs)
+
+FileNotFoundError: [Errno 2] No such file or directory: 'reference_codes.json'
