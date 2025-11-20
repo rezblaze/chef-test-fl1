@@ -1,13 +1,7 @@
-NFileNotFoundError: [Errno 2] No such file or directory: '/databricks-datasets/genai-capstone/'
----------------------------------------------------------------------------
-FileNotFoundError                         Traceback (most recent call last)
-File <command-5180344499318444>, line 2
-      1 import os
-----> 2 os.chdir("/databricks-datasets/genai-capstone/")
-      3 print("Current folder:", os.getcwd())
-      4 print("Files here:", os.listdir(".")[:10])
-
-FileNotFoundError: [Errno 2] No such file or directory: '/databricks-datasets/genai-capstone/'
+import os
+os.chdir("/dbfs/FileStore/tables/")
+print("Now working in:", os.getcwd())
+print("Files found:", [f for f in os.listdir(".") if f.endswith(".json")][:10])
 
 
 
