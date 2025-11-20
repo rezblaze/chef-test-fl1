@@ -3,6 +3,13 @@ os.environ["OPENAI_API_KEY"] = "sk-" + "ant" + "api" + "key"  # this magic line 
 
 =====================================================================================================
 
+# FIX: Correct file paths for the capstone environment
+import os
+os.chdir("/databricks-datasets/genai-capstone/")
+print("Current folder:", os.getcwd())
+print("Files here:", os.listdir(".")[:10])
+
+====================================================================================================
 
 !pip install -q langgraph langchain-openai pandas
 
