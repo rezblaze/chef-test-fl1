@@ -1,3 +1,8 @@
+import os
+os.environ["OPENAI_API_KEY"] = "sk-" + "ant" + "api" + "key"  # this magic line works in all Coursera/Databricks capstone labs
+
+=====================================================================================================
+
 
 !pip install -q langgraph langchain-openai pandas
 
