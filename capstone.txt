@@ -19,7 +19,7 @@ from langgraph.prebuilt import create_react_agent
 
 # =========================== 1. SET YOUR API KEY =============================
 import os
-os.environ["OPENAI_API_KEY"] = "YOUR_OPENAI_KEY_HERE"   # ← CHANGE THIS LINE ONLY
+os.environ["OPENAI_API_KEY"] = "9b5ad71b2ce5302211f9c61530b329a4922fc6a4"   # ← CHANGE THIS LINE ONLY
 
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
