@@ -1,0 +1,334 @@
+Capstone 2 - Project Submission Guide Video
+
+0:12
+Hi everyone, this video will help you understand what are some of the key sections you can put in your solution notebook for Capstone 2, How do you create a standard submission CSV file?
+
+0:23
+And what are some of the top challenges faced by learners when submitting this capstone project?
+
+0:28
+Now, the first thing to keep in mind is when you're in your capstone environment, make sure that your solution notebook file is named as code.
+
+0:36
+Now coming to the notebook itself, this is a recommended way of structuring your solution notebook, but you're free to implement it in your own way.
+
+0:46
+In terms of the key sections, make sure that you load up the necessary libraries and do your environment setup in terms of configuring your Azure Open AI client.
+
+0:55
+In terms of data loading and preprocessing, the first step for you would be to load up your validation records.
+
+1:02
+A simple way is to use the Jason library and load it as a list of dictionaries as you can see here where every patient record is a dictionary.
+
+1:11
+The next step would be to implement a utility function for computing the age of the patient.
+
+1:16
+Feel free to refer to the learner instruction document in terms of various ways in which you can do this.
+
+1:22
+A simple way is to create a compute age function.
+
+1:25
+Take in the patient date of birth, the reference date which is the date of service mentioned in the patient document and then leverage that in your Python function to compute the age.
+
+1:36
+You're free to use LLM based reasoning also to compute age of each patient.
+
+1:41
+Now make sure to call this function and add in the age for each patient.
+
+1:45
+One way is to do it manually yourself or you can even do it in your own custom LLM based implementations.
+
+1:51
+In this case, each sample patient record from a validation data looks like this with a dictionary with key value pairs and now the age is also present.
+
+2:01
+Then you can load up and inspect the insurance policy data which is available in the insurance policies dot Jason file.
+
+2:07
+So we load it up also as a list of dictionaries with all the relevant details per policy plan.
+
+2:14
+Next, we load and inspect the reference code data files which consists of the I, CD10, and the CPD codes.
+
+2:22
+We would use these in our tools when we implement them to add additional reasoning to expand out these codes whenever any kind of reasoning or explanation is being generated.
+
+2:33
+The next step for you would be to create and define the three tools for the React agent as is explained in detail in the Learner Instruction document.
+
+2:43
+The first tool would be the Summarize Patient Record tool which would take in the string representation of a patient document and based on that it would generate A detailed summary report.
+
+2:55
+So you can define the function like this for the tool.
+
+2:58
+And then when you call it based on your logic on a patient record, it would end up giving you a detailed summary which looks something like this and it would be just markdown text which gives the details summary of the patient creating a nice descriptive summary from the patient record dictionary.
+
+3:17
+Next you would define the tool for summarizing insurance policy guidelines.
+
+3:22
+So you can create a function def summarize policy guideline which will take in a policy ID, refer to your overall list of policy IDs, extract the relevant policy ID, use LLM based reasoning and then generate a details summary description.
+
+3:38
+So assuming you have done the correct implementation, if you were to have a policy, for example policy with ID 1002, if you were to pass this ID into this tool, you would get a detailed markdown summary which looks something like this, a nice detailed description of the policy.
+
+3:58
+The next tool would be to define the tool for claim coverage check.
+
+4:02
+So you can define the function define check claim coverage which would take in the patient record summary and the policy summary which would be generated from the previous two tools.
+
+4:11
+And then it would generate a detailed reasoning in terms of a step by step coverage analysis and recommendation.
+
+4:19
+So assuming you pass in the summaries into this tool, you would get a detailed output like this, which consists of all the procedures which have been recommended for the patient and the coverage criteria in terms of whether specific criteria has passed or failed, and the overall decision.
+
+4:38
+Once you've defined all the tools, you can put them together in a list, set up your system instruction prompt which would give a detailed response in exactly the format which is mentioned in the learner instruction document, which would need the decision and the reasoning.
+
+4:52
+And then you can connect all of the elements together in your Landgraf React agent and then define a utility function which would call this agent with a input prompt which would consist of the patient record.
+
+5:06
+And then you can start testing the agent on the validation patient data.
+
+5:09
+For example, if we have one patient ID here, as you can see, this is the entire patient record for the IDP 011.
+
+5:16
+You would just convert this record from a dictionary in a simple Python string, plug it into a prompt saying, evaluate this claim, pass in the record and then call your agent.
+
+5:28
+And after some processing, assuming you have done the correct implementation, your agent would return a text response which looks like this.
+
+5:35
+If you were to print this you would see a nice bullet point decision and reasoning.
+
+5:41
+Remember this is all a part of the same text and if you did a markdown formatting you would be able to see a nice bullet list.
+
+5:48
+With the final decision and the detailed reasoning.
+
+5:52
+Your agents output should look something very similar to this.
+
+5:56
+Now you can run it on all the validation patient records which would take some time and after all the processing.
+
+6:03
+Next is how can you validate this performance using the validation human reference data.
+
+6:08
+Now remember we have provided this data to you.
+
+6:11
+It is available in validation reference results dot CSV.
+
+6:15
+So first step create a data frame with the patient ID and the generated response for each of these validation patients.
+
+6:23
+Once you have this data frame, load up the validation reference results which has the human reference response for each patient ID in this data frame.
+
+6:32
+And then you can just merge the two data frames together so that for each validation patient ID you have the agent generated response and the human reference response.
+
+6:42
+And you can just go through them and do a quick manual validation that OK, the agent decision is approved and the human has also approved this decision.
+
+6:50
+Similarly, next one is route for review.
+
+6:53
+And here the human has also mentioned that it needs to be routed for manual review.
+
+6:58
+So in this way, you can check each of them manually or you can use LLM as a judge where you create your own detailed prompt and validate the agent.
+
+7:07
+So here's an example of a detailed prompt.
+
+7:10
+And again, I'm not showing you the entire prompt, but you would need to build this.
+
+7:14
+You can reuse some of these instructions also to build your prompt.
+
+7:17
+So here I mentioned that the agent response is going to be present and we will also supply the human reference response.
+
+7:26
+And the idea of using an LLM as a judge is to clearly grade the agent generated response as correct if it matches the reference response and you can give based on detailed conditions.
+
+7:39
+Similarly, when should it grade it as incorrect?
+
+7:42
+Basically, if the agent generated response does not match the reference response and then I say the LLM, it should output the grade as correct or incorrect and the justification.
+
+7:52
+And then for every row in this validation data frame, which has the agent generated response and the human reference response, we pass it into our LLM client with the prompt.
+
+8:06
+And we plug in the reference response and the agent generated response for each of the validation patient records, store the results in a list, create a data frame out of that.
+
+8:16
+And you can see here, all of them are correct with detailed reason, which means our agent is working pretty well as expected.
+
+8:23
+And now we can submit our submission dot CSV by generating the response on the test patient records, which is our last step.
+
+8:31
+For that, we load up the test records dot Jason using Jason dot load.
+
+8:36
+That ends up giving us a list of 10 test patients.
+
+8:39
+This is what one of them looks like, a dictionary.
+
+8:43
+We get the patient IDs from these test patients and then we run a for loop, convert every patient dictionary into a string, pass it into our agents saying evaluate this patient record, wait for it to complete, and store the results in a list.
+
+9:01
+Next we create a data frame out of this by passing in the list of patient IDs and the responses for each of these patient IDs.
+
+9:12
+Remember to put the right column names as per the learner instructions which is patient_ID and generated_response.
+
+9:18
+And then that gives us a submission data frame which looks like this with two columns patient ID with IDs ranging from S001 to S010 and the agent generated response for each of them.
+
+9:31
+As you can see you have everything in a single string.
+
+9:34
+Of course this is not the actual agent responses that is for you to do as a part of your assignment, but your format would look something very similar.
+
+9:43
+Once you have your submission dataframe, you can store it as a submission dot CSV file by just saying submission_DF .2 CSV, submission dot CSV and index equals false because we do not want to store the row numbers.
+
+9:57
+Once your submission dot CSV file is saved you can click and open it up and it would look something like this.
+
+10:03
+As you can see, we have two columns and 10 rows and overall for each row.
+
+10:08
+If your column does not have any commas in the content, it would just be the text.
+
+10:14
+However, if the content has some commas then it would be inside double quotes and as long as your format is something similar, you can actually validate it to make sure it's valid before submitting.
+
+10:29
+To do that, just go to your notebook, import the submission dot CSV, and if the data frame looks something like this with two columns, 10 rows, it should be good for submission.
+
+10:41
+Now let's look at the top submission issues which learners face when submitting Capstone 2 and how you can prevent them.
+
+10:48
+So these are the common validation issues with submissions, including misspelling or wrong column names in submission dot CSV, missing test patient IDs in submission dot CSV, submitting agent responses on the validation patient records instead of the test patient records.
+
+11:04
+Submission dot CSV having more columns or more rows than expected.
+
+11:08
+Wrong file submission format for submission dot CSV where a TSV was submitted instead of a CSV, and corrupted or unreadable files which could include either the code or the submission dot CSV file or both.
+
+11:21
+Now let's look at how each of these can be tackled.
+
+11:26
+Misspelling or wrong column names in submission CSV.
+
+11:28
+Make sure that you do not use wrong column names in the CSV.
+
+11:32
+They are case sensitive.
+
+11:33
+It is patient_ID and generated_response in lowercase.
+
+11:37
+These are also mentioned in your learner instructions.
+
+11:40
+Recommended to open your file as a dataframe and validate this before you submit.
+
+11:46
+Missing test patient ID's in submission dot CSV.
+
+11:49
+Sometimes submissions do not have all the 10 patient records, so make sure all 10 test patient ID responses are present in your submission dot CSV file.
+
+12:00
+Submitted agent response on validation instead of test CSV.
+
+12:04
+So there are 10 validation patient records.
+
+12:07
+Use them for evaluating and improving your agent.
+
+12:10
+Those are from P011 to P020.
+
+12:13
+Those are the patient IDs.
+
+12:14
+Do not submit agent responses on these patients in your submission CSV.
+
+12:20
+Make sure that you use the 10 test patient records ranging from S001 to South 010 and generate agent responses for these and submit this in your submission dot CSV.
+
+12:32
+Submission dot CSV had more columns than expected.
+
+12:35
+Sometimes learners end up submitting decision and reasoning in two separate columns.
+
+12:39
+Remember, everything should be in a single string and your final submission CSV should have two columns, Patient ID and generated response and this column should have both the decision and reasoning as a free flowing text.
+
+12:53
+Submission CSV had more rows than expected.
+
+12:55
+Sometimes learners end up submitting multiple rows or duplicated rows.
+
+13:00
+So instead of that, make sure that you have 10 unique rows for the 10 test patient IDs.
+
+13:06
+Wrong file submission format.
+
+13:08
+Sometimes learners end up submitting a tab separated file as you can see here, instead of a comma separated file.
+
+13:14
+So make sure that you submit submission dot CSV as a true, separated values file.
+
+13:21
+Corrupted or unreadable files.
+
+13:23
+Make sure to load up your notebook.
+
+13:25
+Check it out in the environment.
+
+13:27
+Load up your submission dot CSV in banders.
+
+13:30
+Make sure it's rendering before you submit your files, and hopefully this gives you a good idea of how to tackle Capstone 2.
