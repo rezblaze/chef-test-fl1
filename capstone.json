@@ -2,7 +2,16 @@ import os
 os.chdir("/dbfs/FileStore/tables/")
 print("Now working in:", os.getcwd())
 print("Files found:", [f for f in os.listdir(".") if f.endswith(".json")][:10])
+OSError: [Errno 5] Input/output error: '/dbfs/FileStore/tables/'
+---------------------------------------------------------------------------
+OSError                                   Traceback (most recent call last)
+File <command-5180344499319734>, line 2
+      1 import os
+----> 2 os.chdir("/dbfs/FileStore/tables/")
+      3 print("Now working in:", os.getcwd())
+      4 print("Files found:", [f for f in os.listdir(".") if f.endswith(".json")][:10])
 
+OSError: [Errno 5] Input/output error: '/dbfs/FileStore/tables/'
 
 
 {
