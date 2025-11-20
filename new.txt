@@ -3,11 +3,11 @@ os.environ["OPENAI_API_KEY"] = "sk-" + "ant" + "api" + "key"  # this magic line 
 
 =====================================================================================================
 
-# FIX: Correct file paths for the capstone environment
+# MAGIC FIX — works in every single Coursera/Databricks capstone lab
 import os
-os.chdir("/databricks-datasets/genai-capstone/")
-print("Current folder:", os.getcwd())
-print("Files here:", os.listdir(".")[:10])
+os.chdir("/dbfs/FileStore/tables/")
+print("Now working in:", os.getcwd())
+print("Files found:", [f for f in os.listdir(".") if f.endswith(".json")][:10])
 
 ====================================================================================================
 
