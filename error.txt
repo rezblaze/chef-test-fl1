@@ -1,0 +1,59 @@
+from langchain_core.messages import SystemMessage, HumanMessage
+import json
+
+system_prompt = """You are a Healthcare Insurance Claim Approval Agent.
+Use the 3 tools in EXACT order:
+1. summarize_patient_record (full JSON)
+2. summarize_policy_guideline (policy_id)
+3. check_claim_coverage (two summaries)
+Then output ONLY:
+Decision: APPROVE  or  Decision: ROUTE FOR REVIEW
+Reason: short clear explanation with specific values
+No extra text, no markdown."""
+
+agent = create_react_agent(llm, tools)
+
+def run_claim(rec):
+    messages = [
+        SystemMessage(content=system_prompt),
+        HumanMessage(content="Evaluate:\n" + json.dumps(rec))
+    ]
+    result = agent.invoke({"messages": messages})
+    return result["messages"][-1].content.strip()
+
+print("Agent ready! Run the next cell to create submission.csv")
+
+TypeError: StateGraph.add_node() got an unexpected keyword argument 'input_schema'
+---------------------------------------------------------------------------
+TypeError                                 Traceback (most recent call last)
+File <command-5180344499326945>, line 14
+      2 import json
+      4 system_prompt = """You are a Healthcare Insurance Claim Approval Agent.
+      5 Use the 3 tools in EXACT order:
+      6 1. summarize_patient_record (full JSON)
+   (...)
+     11 Reason: short clear explanation with specific values
+     12 No extra text, no markdown."""
+---> 14 agent = create_react_agent(llm, tools)
+     16 def run_claim(rec):
+     17     messages = [
+     18         SystemMessage(content=system_prompt),
+     19         HumanMessage(content="Evaluate:\n" + json.dumps(rec))
+     20     ]
+
+File /local_disk0/.ephemeral_nfs/envs/pythonEnv-1fd3ee8f-fbd0-4fd5-85bd-a259cb8afbb2/lib/python3.12/site-packages/langgraph/prebuilt/chat_agent_executor.py:663, in create_react_agent(model, tools, prompt, response_format, pre_model_hook, post_model_hook, state_schema, config_schema, checkpointer, store, interrupt_before, interrupt_after, debug, version, name)
+    660 workflow = StateGraph(state_schema or AgentState, config_schema=config_schema)
+    662 # Define the two nodes we will cycle between
+--> 663 workflow.add_node(
+    664     "agent",
+    665     RunnableCallable(call_model, acall_model),
+    666     input_schema=input_schema,
+    667 )
+    668 workflow.add_node("tools", tool_node)
+    670 # Optionally add a pre-model hook node that will be called
+    671 # every time before the "agent" (LLM-calling node)
+
+TypeError: StateGraph.add_node() got an unexpected keyword argument 'input_schema'
+[Shift+Enter] to run and move to next cell
+[Cmd+Shift+P] to open the command palette
+[Esc H] to see all keyboard shortcuts
