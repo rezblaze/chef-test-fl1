@@ -1,19 +1,25 @@
 Note: you may need to restart the kernel using %restart_python or dbutils.library.restartPython() to use updated packages.
-OpenAIError: The api_key client option must be set either by passing api_key to the client or by setting the OPENAI_API_KEY environment variable
-File <command-5180344499317710>, line 11
-      8 from langchain_core.messages import HumanMessage
-     10 # LLM
----> 11 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+FileNotFoundError: [Errno 2] No such file or directory: 'reference_codes.json'
+[Trace ID: 00-bef9a9d0bcb7bfb4413de37c93751cf4-f1b9264c76e2aa31-00]
+---------------------------------------------------------------------------
+FileNotFoundError                         Traceback (most recent call last)
+File <command-5180344499318187>, line 14
+     11 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
      13 # Load data
-     14 reference_codes = json.load(open('reference_codes.json'))
-File /local_disk0/.ephemeral_nfs/envs/pythonEnv-1fd3ee8f-fbd0-4fd5-85bd-a259cb8afbb2/lib/python3.12/site-packages/openai/_client.py:116, in OpenAI.__init__(self, api_key, organization, project, base_url, websocket_base_url, timeout, max_retries, default_headers, default_query, http_client, _strict_response_validation)
-    114     api_key = os.environ.get("OPENAI_API_KEY")
-    115 if api_key is None:
---> 116     raise OpenAIError(
-    117         "The api_key client option must be set either by passing api_key to the client or by setting the OPENAI_API_KEY environment variable"
-    118     )
-    119 self.api_key = api_key
-    121 if organization is None:
+---> 14 reference_codes = json.load(open('reference_codes.json'))
+     15 policies = json.load(open('insurance_policies.json'))
+     16 validation_records = json.load(open('validation_records.json'))
+
+File /databricks/python/lib/python3.12/site-packages/IPython/core/interactiveshell.py:324, in _modified_open(file, *args, **kwargs)
+    317 if file in {0, 1, 2}:
+    318     raise ValueError(
+    319         f"IPython won't let you open fd={file} by default "
+    320         "as it is likely to crash IPython. If you know what you are doing, "
+    321         "you can use builtins' open."
+    322     )
+--> 324 return io_open(file, *args, **kwargs)
+
+FileNotFoundError: [Errno 2] No such file or directory: 'reference_codes.json'
 
 
 
