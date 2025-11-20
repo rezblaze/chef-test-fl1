@@ -1,25 +1,13 @@
-Note: you may need to restart the kernel using %restart_python or dbutils.library.restartPython() to use updated packages.
-FileNotFoundError: [Errno 2] No such file or directory: 'reference_codes.json'
-[Trace ID: 00-bef9a9d0bcb7bfb4413de37c93751cf4-f1b9264c76e2aa31-00]
+NFileNotFoundError: [Errno 2] No such file or directory: '/databricks-datasets/genai-capstone/'
 ---------------------------------------------------------------------------
 FileNotFoundError                         Traceback (most recent call last)
-File <command-5180344499318187>, line 14
-     11 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-     13 # Load data
----> 14 reference_codes = json.load(open('reference_codes.json'))
-     15 policies = json.load(open('insurance_policies.json'))
-     16 validation_records = json.load(open('validation_records.json'))
+File <command-5180344499318444>, line 2
+      1 import os
+----> 2 os.chdir("/databricks-datasets/genai-capstone/")
+      3 print("Current folder:", os.getcwd())
+      4 print("Files here:", os.listdir(".")[:10])
 
-File /databricks/python/lib/python3.12/site-packages/IPython/core/interactiveshell.py:324, in _modified_open(file, *args, **kwargs)
-    317 if file in {0, 1, 2}:
-    318     raise ValueError(
-    319         f"IPython won't let you open fd={file} by default "
-    320         "as it is likely to crash IPython. If you know what you are doing, "
-    321         "you can use builtins' open."
-    322     )
---> 324 return io_open(file, *args, **kwargs)
-
-FileNotFoundError: [Errno 2] No such file or directory: 'reference_codes.json'
+FileNotFoundError: [Errno 2] No such file or directory: '/databricks-datasets/genai-capstone/'
 
 
 
