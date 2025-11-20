@@ -114,3 +114,205 @@ print("\nsubmission.csv is ready!")
 display(df)
 
 
+
+VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV
+# %% [markdown]
+# # Healthcare Insurance Claim Approval Agent - Capstone 2
+# Fully working solution using LangGraph + ReAct Agent + 3 Tools
+# Model: gpt-4o-mini (or change to gpt-4.1-mini if you prefer)
+
+# %% 
+# 1. Environment Setup
+!pip install -q langgraph langchain langchain-openai pandas python-dotenv
+
+import json
+import pandas as pd
+from datetime import datetime
+from typing import List, Dict, Any
+
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.prompts import ChatPromptTemplate
+from langgraph.prebuilt import create_react_agent
+
+# Put your OpenAI API key here (or use Azure OpenAI endpoint)
+import os
+os.environ["OPENAI_API_KEY"] = "YOUR_API_KEY_HERE"   # ← CHANGE THIS
+
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+
+# %% [markdown]
+# # 2. Load All Datasets
+
+# %%
+# Load reference codes (ICD-10 & CPT descriptions)
+with open("reference_codes.json", "r") as f:
+    reference_codes = json.load(f)
+
+# Load insurance policies
+with open("insurance_policies.json", "r") as f:
+    policies = json.load(f)
+    # Convert to dict for fast lookup
+    policy_dict = {p["policy_id"]: p for p in policies}
+
+# Load validation & test records
+with open("validation_records.json", "r") as f:
+    validation_records = json.load(f)
+
+with open("test_records.json", "r") as f:
+    test_records = json.load(f)
+
+# %% [markdown]
+# # 3. Age Calculation Utility
+
+# %%
+def compute_age(dob: str, dos: str) -> int:
+    """Compute exact age on date of service (standard healthcare method)"""
+    birth = datetime.strptime(dob, "%Y-%m-%d")
+    service = datetime.strptime(dos, "%Y-%m-%d")
+    age = service.year - birth.year
+    if (service.month, service.day) < (birth.month, birth.day):
+        age -= 1
+    return age
+
+def add_age_to_records(records: List[Dict]) -> List[Dict]:
+    for rec in records:
+        rec["age"] = compute_age(rec["date_of_birth"], rec["date_of_service"])
+    return records
+
+validation_records = add_age_to_records(validation_records)
+test_records = add_age_to_records(test_records)
+
+# %% [markdown]
+# # 4. Tool Definitions
+
+# %%
+from langchain_core.tools import tool
+
+@tool
+def summarize_patient_record(record_str: str) -> str:
+    """Summarize a patient claim record into the exact required structured format."""
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", """You are an expert medical insurance summarizer.
+Use the following reference codes to expand ICD-10 and CPT codes into full descriptions:
+ICD-10 mappings: {icd}
+CPT mappings: {cpt}
+
+Return ONLY the summary in this exact order with clear section headers:
+
+• Patient Demographics: name, gender, age
+• Insurance Policy ID: <policy_id>
+• Diagnoses and Descriptions: <ICD10 code> - <full description>, ...
+• Procedures and Descriptions: <CPT code> - <full description>, ...
+• Preauthorization Status: <Yes/No/Required but not obtained etc.>
+• Billed Amount (in USD): <amount>
+• Date of Service: <date>
+
+Use bullet points and be concise."""),
+        ("human", "{record}")
+    ])
+    
+    chain = prompt | llm
+    result = chain.invoke({
+        "record": record_str,
+        "icd": json.dumps({k: v for k, v in reference_codes.items() if k[0].isalpha()}),
+        "cpt": json.dumps({k: v for k, v in reference_codes.items() if k.isdigit()})
+    })
+    return result.content
+
+@tool  
+def summarize_policy_guideline(policy_id: str) -> str:
+    """Summarize the insurance policy for the given policy_id."""
+    policy = policy_dict.get(policy_id)
+    if not policy:
+        return f"Policy {policy_id} not found."
+    
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", """You are an expert insurance policy summarizer.
+Use the reference codes below to expand CPT and ICD-10 codes.
+
+Return ONLY a structured summary with these sections:
+
+• Policy Details: <policy_id> - <plan_name>
+• Covered Procedures:
+  - Procedure Code and Description: <CPT> - <description>
+    Covered Diagnoses and Descriptions: <ICD1> - <desc1>, <ICD2> - <desc2>, ...
+    Gender Restriction: <Any/Male/Female>
+    Age Range: <min> to <max> (inclusive min, exclusive max)
+    Preauthorization Requirement: <Yes/No>
+    Notes on Coverage: <notes or None>
+
+Repeat the block for every covered procedure.
+
+Reference codes:
+{codes}"""),
+        ("human", "Policy ID: {policy_id}")
+    ])
+    
+    chain = prompt | llm
+    result = chain.invoke({
+        "policy_id": policy_id,
+        "codes": json.dumps(reference_codes)
+    })
+    return result.content
+
+@tool
+def check_claim_coverage(record_summary: str, policy_summary: str) -> str:
+    """Perform detailed coverage validation and return structured reasoning."""
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", """You are an expert claims adjudicator. 
+Evaluate coverage STRICTLY according to the policy rules.
+
+A claim is APPROVED only if ALL of these are true for the claimed procedure:
+- Procedure code is explicitly listed in the policy
+- At least one diagnosis matches a covered diagnosis for that procedure
+- Patient age is >= min and < max (max is exclusive)
+- Gender matches (Any = no restriction)
+- If preauthorization required → must be obtained
+
+There is exactly one procedure per claim.
+
+Return exactly these three sections:
+
+• Coverage Review: step-by-step checks with clear pass/fail
+• Summary of Findings: bullet list of what passed and what failed
+• Final Decision: APPROVE or ROUTE FOR REVIEW + one-sentence reason
+
+Do not hallucinate codes or rules."""),
+        ("human", "Patient Summary:\n{record}\n\nPolicy Summary:\n{policy}")
+    ])
+    
+    chain = prompt | llm
+    result = chain.invoke({"record": record_summary, "policy": policy_summary})
+    return result.content
+
+tools = [summarize_patient_record, summarize_policy_guideline, check_claim_coverage]
+
+# %% [markdown]
+# # 5. System Prompt (Critical for correct sequence & final format)
+
+# %%
+system_prompt = """You are a Healthcare Insurance Claim Approval Agent.
+You have exactly three tools:
+1. summarize_patient_record(record_str) - creates structured patient summary
+2. summarize_policy_guideline(policy_id) - creates structured policy summary
+3. check_claim_coverage(record_summary, policy_summary) - performs coverage validation
+
+You MUST use the tools in EXACTLY this order:
+1. Call summarize_patient_record with the full patient record (provided as JSON string)
+2. Extract the Insurance Policy ID from its output and call summarize_policy_guideline
+3. Call check_claim_coverage with both summaries
+4. After the third tool returns, produce the FINAL answer.
+
+FINAL OUTPUT FORMAT (exactly like this, no extra text):
+
+Decision: APPROVE  
+Reason: <concise, accurate reason referencing specific codes, age, gender, preauth, etc.>
+
+OR
+
+Decision: ROUTE FOR REVIEW  
+Reason: <concise reason why automatic approval is not possible>
+
+Do not add thinking steps after the final answer."""
+
