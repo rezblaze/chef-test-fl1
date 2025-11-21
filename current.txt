@@ -4,3 +4,10 @@ for pkg in ["langgraph", "langgraph-prebuilt", "langgraph-checkpoint", "langchai
         print(pkg, pkg_resources.get_distribution(pkg).version)
     except:
         print(pkg, "not installed")
+langgraph 0.4.3
+langgraph-prebuilt 0.5.1
+langgraph-checkpoint 2.1.1
+langchain 0.3.24
+langchain-core 0.3.63
+/home/spark-a4b12554-9008-4b5a-86ef-a6/.ipykernel/52563/command-6815836300095592-3799901586:1: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  import pkg_resources
