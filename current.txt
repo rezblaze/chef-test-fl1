@@ -1,3 +1,29 @@
+NameError: name 'agent_executor' is not defined
+---------------------------------------------------------------------------
+NameError                                 Traceback (most recent call last)
+File <command-6815836300082190>, line 197
+    195 for rec in test_records:
+    196     print(f"→ {rec['patient_id']}")
+--> 197     resp = run_claim(rec)
+    198     results.append({"patient_id": rec["patient_id"], "generated_response": resp})
+    200 submission_df = pd.DataFrame(results)[["patient_id", "generated_response"]]
+
+File <command-6815836300082190>, line 177, in run_claim(rec)
+    171 messages = [
+    172     SystemMessage(content=system_prompt),
+    173     HumanMessage(content="Evaluate this insurance claim:\n" + json.dumps(rec, indent=2))
+    174 ]
+    176 # Invoke the agent
+--> 177 result = agent_executor.invoke({"messages": messages})
+    179 # Debug: inspect the raw result if needed
+    180 # print("DEBUG result:", result)
+    181 
+    182 # Prefer the new 'output' field if present
+    183 if "output" in result and result["output"]:
+
+NameError: name 'agent_executor' is not defined
+
+
 import json
 import pandas as pd
 from datetime import datetime
