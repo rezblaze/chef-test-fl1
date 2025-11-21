@@ -1,3 +1,30 @@
+TypeError                                 Traceback (most recent call last)
+File <command-6815836300087292>, line 110
+     96 system_prompt = """You are a Healthcare Insurance Claim Approval Agent.
+     97 You have exactly 3 tools. Always use them in this exact order:
+     98 1. summarize_patient_record
+   (...)
+    106 Reason: <short reason>
+    107 """
+    109 # --- ✅ Create the agent executor ---
+--> 110 agent_executor = create_react_agent(model=llm, tools=tools)
+    112 # --- Claim runner ---
+    113 def run_claim(rec: dict) -> str:
+
+File /local_disk0/.ephemeral_nfs/envs/pythonEnv-a4b12554-9008-4b5a-86ef-a68f1a4a133c/lib/python3.12/site-packages/langgraph/prebuilt/chat_agent_executor.py:663, in create_react_agent(model, tools, prompt, response_format, pre_model_hook, post_model_hook, state_schema, config_schema, checkpointer, store, interrupt_before, interrupt_after, debug, version, name)
+    660 workflow = StateGraph(state_schema or AgentState, config_schema=config_schema)
+    662 # Define the two nodes we will cycle between
+--> 663 workflow.add_node(
+    664     "agent",
+    665     RunnableCallable(call_model, acall_model),
+    666     input_schema=input_schema,
+    667 )
+    668 workflow.add_node("tools", tool_node)
+    670 # Optionally add a pre-model hook node that will be called
+    671 # every time before the "agent" (LLM-calling node)
+
+TypeError: StateGraph.add_node() got an unexpected keyword argument 'input_schema'
+
 import json
 import pandas as pd
 from datetime import datetime
