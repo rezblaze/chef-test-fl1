@@ -1,13 +1,27 @@
-import pkg_resources
-for pkg in ["langgraph", "langgraph-prebuilt", "langgraph-checkpoint", "langchain", "langchain-core"]:
-    try:
-        print(pkg, pkg_resources.get_distribution(pkg).version)
-    except:
-        print(pkg, "not installed")
-langgraph 0.4.3
-langgraph-prebuilt 0.5.1
-langgraph-checkpoint 2.1.1
-langchain 0.3.24
-langchain-core 0.3.63
-/home/spark-a4b12554-9008-4b5a-86ef-a6/.ipykernel/52563/command-6815836300095592-3799901586:1: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
-  import pkg_resources
+from langgraph.prebuilt import create_react_agent
+
+# Your LLM and tools stay exactly the same
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+
+tools = [summarize_patient_record, summarize_policy_guideline, check_claim_coverage]
+
+system_prompt = """You are a Healthcare Insurance Claim Approval Agent.
+Use the 3 tools in EXACT order:
+1. summarize_patient_record (full JSON)
+2. summarize_policy_guideline (policy_id)
+3. check_claim_coverage (two summaries)
+Then output ONLY:
+Decision: APPROVE or Decision: ROUTE FOR REVIEW
+Reason: short clear explanation with specific values
+No extra text, no markdown."""
+
+# THIS IS THE ONLY LINE YOU NEED NOW (2025 syntax)
+agent_executor = create_react_agent(
+    model=llm,           # note: "model=", not just "llm,"
+    tools=tools,
+    state_modifier=system_prompt   # ← new name, replaces old messages_modifier=
+)
+
+
+==========================================================
+
