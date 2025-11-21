@@ -1,3 +1,33 @@
+def run_claim(rec: dict) -> str:
+    """
+    Evaluate a single insurance claim record using the agent executor.
+    Handles both new-style 'output' and legacy 'messages' return formats.
+    """
+    # Build the conversation context
+    messages = [
+        SystemMessage(content=system_prompt),
+        HumanMessage(content="Evaluate this insurance claim:\n" + json.dumps(rec, indent=2))
+    ]
+
+    # Invoke the agent
+    result = agent_executor.invoke({"messages": messages})
+
+    # Debug: inspect the raw result if needed
+    # print("DEBUG result:", result)
+
+    # Prefer the new 'output' field if present
+    if "output" in result and result["output"]:
+        return result["output"].strip()
+
+    # Fallback: extract from messages list
+    if "messages" in result and result["messages"]:
+        return result["messages"][-1].content.strip()
+
+    # If neither is available, return a safe default
+    return "No decision produced by agent."
+
+
+
 Here are the package versions:
 Package                                  Version
 ---------------------------------------- -------------------------------
