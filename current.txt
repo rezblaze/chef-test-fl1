@@ -1,44 +1,15 @@
-TypeError                                 Traceback (most recent call last)
-File <command-6815836300087292>, line 110
-     96 system_prompt = """You are a Healthcare Insurance Claim Approval Agent.
-     97 You have exactly 3 tools. Always use them in this exact order:
-     98 1. summarize_patient_record
-   (...)
-    106 Reason: <short reason>
-    107 """
-    109 # --- ✅ Create the agent executor ---
---> 110 agent_executor = create_react_agent(model=llm, tools=tools)
-    112 # --- Claim runner ---
-    113 def run_claim(rec: dict) -> str:
-
-File /local_disk0/.ephemeral_nfs/envs/pythonEnv-a4b12554-9008-4b5a-86ef-a68f1a4a133c/lib/python3.12/site-packages/langgraph/prebuilt/chat_agent_executor.py:663, in create_react_agent(model, tools, prompt, response_format, pre_model_hook, post_model_hook, state_schema, config_schema, checkpointer, store, interrupt_before, interrupt_after, debug, version, name)
-    660 workflow = StateGraph(state_schema or AgentState, config_schema=config_schema)
-    662 # Define the two nodes we will cycle between
---> 663 workflow.add_node(
-    664     "agent",
-    665     RunnableCallable(call_model, acall_model),
-    666     input_schema=input_schema,
-    667 )
-    668 workflow.add_node("tools", tool_node)
-    670 # Optionally add a pre-model hook node that will be called
-    671 # every time before the "agent" (LLM-calling node)
-
-TypeError: StateGraph.add_node() got an unexpected keyword argument 'input_schema'
-
 import json
 import pandas as pd
 from datetime import datetime
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.tools import tool
-from langgraph.prebuilt import create_react_agent
+from langgraph.graph import StateGraph, MessagesState
+from langgraph.prebuilt import ToolNode, tools_condition
 
 # --- Setup ---
-os.environ["OPENAI_API_KEY"] = "your_api_key_here"
-
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
-# Load data
 with open("./Data/reference_codes.json") as f:
     reference_codes = json.load(f)
 
@@ -68,59 +39,25 @@ for recs in [validation_records, test_records]:
 # --- Tools ---
 @tool
 def summarize_patient_record(record_str: str) -> str:
-    """Create structured patient summary"""
-    prompt = f"""You are an expert insurance summarizer.
-ICD-10: {json.dumps({k:v for k,v in reference_codes.items() if not k.isdigit()}, ensure_ascii=False)}
-CPT: {json.dumps({k:v for k,v in reference_codes.items() if k.isdigit()}, ensure_ascii=False)}
-
-Return ONLY this exact format:
-• Patient Demographics: [Name], [Gender], age [Age]
-• Insurance Policy ID: [PolicyID]
-• Diagnoses and Descriptions: [CODE] - [Description]
-• Procedures and Descriptions: [CODE] - [Description]
-• Preauthorization Status: [Yes/No/Required but not obtained]
-• Billed Amount (in USD): [Amount]
-• Date of Service: [Date]
-
-Patient record:
-{record_str}"""
-    return llm.invoke(prompt).content
+    return llm.invoke(f"Summarize patient record:\n{record_str}").content
 
 @tool
 def summarize_policy_guideline(policy_id: str) -> str:
-    """Create structured policy summary"""
     policy = policy_dict.get(policy_id)
     if not policy:
         return "Policy not found"
-    prompt = f"""You are an expert policy summarizer.
-Return ONLY this format:
-• Policy Details: {policy_id} - {policy.get('plan_name','')}
-• Covered Procedures: ...
-Reference codes: {json.dumps(reference_codes, ensure_ascii=False)}"""
-    return llm.invoke(prompt).content
+    return llm.invoke(f"Summarize policy {policy_id}:\n{json.dumps(policy)}").content
 
 @tool
 def check_claim_coverage(record_summary: str, policy_summary: str) -> str:
-    """Final coverage decision with reasoning"""
-    prompt = f"""You are a strict claims adjudicator.
-Approve ONLY if ALL rules are met.
-
-Patient summary:
-{record_summary}
-
-Policy summary:
-{policy_summary}
-
-Return exactly:
-• Coverage Review
-• Summary of Findings
-• Final Decision: APPROVE or ROUTE FOR REVIEW"""
-    return llm.invoke(prompt).content
+    return llm.invoke(
+        f"Check coverage:\nRecord:\n{record_summary}\nPolicy:\n{policy_summary}"
+    ).content
 
 tools = [summarize_patient_record, summarize_policy_guideline, check_claim_coverage]
 
 system_prompt = """You are a Healthcare Insurance Claim Approval Agent.
-You have exactly 3 tools. Always use them in this exact order:
+Always use the tools in this order:
 1. summarize_patient_record
 2. summarize_policy_guideline
 3. check_claim_coverage
@@ -132,8 +69,26 @@ Decision: ROUTE FOR REVIEW
 Reason: <short reason>
 """
 
-# --- ✅ Create the agent executor ---
-agent_executor = create_react_agent(model=llm, tools=tools)
+# --- Build agent manually ---
+workflow = StateGraph(MessagesState)
+
+# Tool node
+tool_node = ToolNode(tools)
+
+# LLM node
+def call_llm(state: MessagesState):
+    response = llm.invoke(state["messages"])
+    return {"messages": state["messages"] + [response]}
+
+workflow.add_node("agent", call_llm)
+workflow.add_node("tools", tool_node)
+
+# Edges: agent → tools → agent
+workflow.add_edge("agent", "tools")
+workflow.add_conditional_edges("tools", tools_condition)
+
+workflow.set_entry_point("agent")
+agent_executor = workflow.compile()
 
 # --- Claim runner ---
 def run_claim(rec: dict) -> str:
@@ -142,7 +97,6 @@ def run_claim(rec: dict) -> str:
         HumanMessage(content="Evaluate this insurance claim:\n" + json.dumps(rec, indent=2))
     ]
     result = agent_executor.invoke({"messages": messages})
-
     if "output" in result and result["output"]:
         return result["output"].strip()
     if "messages" in result and result["messages"]:
@@ -151,14 +105,10 @@ def run_claim(rec: dict) -> str:
 
 # --- Batch run ---
 results = []
-print("Processing test records...")
 for rec in test_records:
-    print(f"→ {rec['patient_id']}")
     resp = run_claim(rec)
     results.append({"patient_id": rec["patient_id"], "generated_response": resp})
 
 submission_df = pd.DataFrame(results)[["patient_id", "generated_response"]]
 submission_df.to_csv("submission.csv", index=False)
-
-print("\nDONE! submission.csv created")
 submission_df.head()
