@@ -1,8 +1,6 @@
-%pip install \
-  "langgraph==0.2.28" \
-  "langgraph-checkpoint==1.0.9" \
-  "langgraph-prebuilt==0.2.5" \
-  "langgraph-cli==0.2.4" --force-reinstall
-
-# Restart Python kernel / cluster after this
-
+import pkg_resources
+for pkg in ["langgraph", "langgraph-prebuilt", "langgraph-checkpoint", "langchain", "langchain-core"]:
+    try:
+        print(pkg, pkg_resources.get_distribution(pkg).version)
+    except:
+        print(pkg, "not installed")
