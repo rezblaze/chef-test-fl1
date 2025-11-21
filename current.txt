@@ -1,4 +1,8 @@
-TypeError: create_react_agent() got an unexpected keyword argument 'state_modifier'
+INFO:py4j.clientserver:Received command c on object id p0
+Found the file at:
+./Data/reference_codes.json
+
+TypeError: create_react_agent() got an unexpected keyword argument 'messages_modifier'
 ---------------------------------------------------------------------------
 TypeError                                 Traceback (most recent call last)
 File <command-5180344499318147>, line 136
@@ -9,6 +13,6 @@ File <command-5180344499318147>, line 136
    (...)
     133 Reason: short clear explanation with specific values
     134 No extra text, no markdown."""
---> 136 agent_executor = create_react_agent(model=llm, tools=tools, state_modifier=system_prompt)
+--> 136 agent_executor = create_react_agent(model=llm, tools=tools, messages_modifier=system_prompt)
 
-TypeError: create_react_agent() got an unexpected keyword argument 'state_modifier'
+TypeError: create_react_agent() got an unexpected keyword argument 'messages_modifier'
