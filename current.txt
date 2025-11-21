@@ -1,71 +1,17 @@
-NameError: name 'agent_executor' is not defined
----------------------------------------------------------------------------
-NameError                                 Traceback (most recent call last)
-File <command-6815836300082190>, line 197
-    195 for rec in test_records:
-    196     print(f"→ {rec['patient_id']}")
---> 197     resp = run_claim(rec)
-    198     results.append({"patient_id": rec["patient_id"], "generated_response": resp})
-    200 submission_df = pd.DataFrame(results)[["patient_id", "generated_response"]]
-
-File <command-6815836300082190>, line 177, in run_claim(rec)
-    171 messages = [
-    172     SystemMessage(content=system_prompt),
-    173     HumanMessage(content="Evaluate this insurance claim:\n" + json.dumps(rec, indent=2))
-    174 ]
-    176 # Invoke the agent
---> 177 result = agent_executor.invoke({"messages": messages})
-    179 # Debug: inspect the raw result if needed
-    180 # print("DEBUG result:", result)
-    181 
-    182 # Prefer the new 'output' field if present
-    183 if "output" in result and result["output"]:
-
-NameError: name 'agent_executor' is not defined
-
-
 import json
 import pandas as pd
 from datetime import datetime
-from typing import Dict, Any
 from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.output_parsers import StrOutputParser
-from langgraph.graph import StateGraph, MessagesState
-from langgraph.prebuilt import ToolNode, tools_condition, create_react_agent
+from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.tools import tool
-from dateutil import parser
-import os
-os.environ["OPENAI_API_KEY"] = "sk-" + "ant" + "api" + "key"
+from langgraph.prebuilt import create_react_agent
 
-# Starting directory (current working directory)
-start_dir = '.'
+# --- Setup ---
+os.environ["OPENAI_API_KEY"] = "your_api_key_here"
 
-# File name to search
-target_file = 'reference_codes.json'
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
-# Walk through directories and find matches
-matches = []
-for root, dirs, files in os.walk(start_dir):
-    if target_file in files:
-        matches.append(os.path.join(root, target_file))
-
-if matches:
-    print("Found the file at:")
-    for match in matches:
-        print(match)
-else:
-    print(f"'{target_file}' not found under {os.path.abspath(start_dir)}")
-
-
-os.environ["OPENAI_API_KEY"] = "9b5ad71b2ce5302211f9c61530b329a4922fc6a4"
-
-llm = ChatOpenAI(
-    model="gpt-4o-mini",
-    temperature=0
-)
-
+# Load data
 with open("./Data/reference_codes.json") as f:
     reference_codes = json.load(f)
 
@@ -79,7 +25,7 @@ with open("./Data/validation_records.json") as f:
 with open("./Data/test_records.json") as f:
     test_records = json.load(f)
 
-# Add age to every record
+# --- Helper: calculate age ---
 def calc_age(dob, dos):
     b = datetime.strptime(dob, "%Y-%m-%d")
     s = datetime.strptime(dos, "%Y-%m-%d")
@@ -92,21 +38,18 @@ for recs in [validation_records, test_records]:
     for r in recs:
         r['age'] = calc_age(r['date_of_birth'], r['date_of_service'])
 
-ref_str = json.dumps(reference_codes, indent=2)
-
+# --- Tools ---
 @tool
 def summarize_patient_record(record_str: str) -> str:
     """Create structured patient summary"""
     prompt = f"""You are an expert insurance summarizer.
-Use these code descriptions (never make up codes):
 ICD-10: {json.dumps({k:v for k,v in reference_codes.items() if not k.isdigit()}, ensure_ascii=False)}
 CPT: {json.dumps({k:v for k,v in reference_codes.items() if k.isdigit()}, ensure_ascii=False)}
 
 Return ONLY this exact format:
-
 • Patient Demographics: [Name], [Gender], age [Age]
 • Insurance Policy ID: [PolicyID]
-• Diagnoses and Descriptions: [CODE] - [Description] (one per line)
+• Diagnoses and Descriptions: [CODE] - [Description]
 • Procedures and Descriptions: [CODE] - [Description]
 • Preauthorization Status: [Yes/No/Required but not obtained]
 • Billed Amount (in USD): [Amount]
@@ -122,22 +65,10 @@ def summarize_policy_guideline(policy_id: str) -> str:
     policy = policy_dict.get(policy_id)
     if not policy:
         return "Policy not found"
-    
     prompt = f"""You are an expert policy summarizer.
-Use the reference codes below to expand CPT and ICD-10 codes.
-
 Return ONLY this format:
-
 • Policy Details: {policy_id} - {policy.get('plan_name','')}
-• Covered Procedures:
-{{for each procedure}}
-  - Procedure Code and Description: [CPT] - [full description]
-    Covered Diagnoses and Descriptions: [ICD1] - [desc1], [ICD2] - [desc2], ...
-    Gender Restriction: {policy['covered_procedures'][i].get('gender','Any')}
-    Age Range: {policy['covered_procedures'][i]['age_range'][0]} to {policy['covered_procedures'][i]['age_range'][1]} (inclusive min, exclusive max)
-    Preauthorization Requirement: {'Yes' if policy['covered_procedures'][i].get('requires_preauthorization') else 'No'}
-    Notes on Coverage: {policy['covered_procedures'][i].get('notes','None')}
-
+• Covered Procedures: ...
 Reference codes: {json.dumps(reference_codes, ensure_ascii=False)}"""
     return llm.invoke(prompt).content
 
@@ -145,12 +76,7 @@ Reference codes: {json.dumps(reference_codes, ensure_ascii=False)}"""
 def check_claim_coverage(record_summary: str, policy_summary: str) -> str:
     """Final coverage decision with reasoning"""
     prompt = f"""You are a strict claims adjudicator.
-Approve ONLY if ALL these are true:
-- Procedure exactly matches a covered CPT
-- At least one diagnosis matches the allowed list for that CPT
-- Age >= min and < max (max exclusive)
-- Gender matches (Any = ok)
-- Preauth required → must be obtained
+Approve ONLY if ALL rules are met.
 
 Patient summary:
 {record_summary}
@@ -158,281 +84,54 @@ Patient summary:
 Policy summary:
 {policy_summary}
 
-Return exactly these three sections:
-• Coverage Review: step-by-step pass/fail checks
-• Summary of Findings: bullets of passed/failed
-• Final Decision: APPROVE or ROUTE FOR REVIEW + one-sentence reason"""
+Return exactly:
+• Coverage Review
+• Summary of Findings
+• Final Decision: APPROVE or ROUTE FOR REVIEW"""
     return llm.invoke(prompt).content
 
 tools = [summarize_patient_record, summarize_policy_guideline, check_claim_coverage]
 
 system_prompt = """You are a Healthcare Insurance Claim Approval Agent.
 You have exactly 3 tools. Always use them in this exact order:
-
-1. Call summarize_patient_record with the full patient JSON
-2. Extract the Policy ID from its output and call summarize_policy_guideline
-3. Call check_claim_coverage with both summaries
-4. After the 3rd tool returns, output the final decision.
-
-Final output must be exactly:
-
+1. summarize_patient_record
+2. summarize_policy_guideline
+3. check_claim_coverage
+Final output must be:
 Decision: APPROVE
-Reason: <short accurate reason with codes, age, gender, preauth>
-
+Reason: <short reason>
 OR
-
 Decision: ROUTE FOR REVIEW
-Reason: <short reason why not approved>
+Reason: <short reason>
+"""
 
-No markdown, no extra text, no bullets."""
+# --- ✅ Create the agent executor ---
+agent_executor = create_react_agent(model=llm, tools=tools)
 
-#agent_executor = create_react_agent(model=llm, tools=tools)
-
+# --- Claim runner ---
 def run_claim(rec: dict) -> str:
-    """
-    Evaluate a single insurance claim record using the agent executor.
-    Handles both new-style 'output' and legacy 'messages' return formats.
-    """
-    # Build the conversation context
     messages = [
         SystemMessage(content=system_prompt),
         HumanMessage(content="Evaluate this insurance claim:\n" + json.dumps(rec, indent=2))
     ]
-
-    # Invoke the agent
     result = agent_executor.invoke({"messages": messages})
 
-    # Debug: inspect the raw result if needed
-    # print("DEBUG result:", result)
-
-    # Prefer the new 'output' field if present
     if "output" in result and result["output"]:
         return result["output"].strip()
-
-    # Fallback: extract from messages list
     if "messages" in result and result["messages"]:
         return result["messages"][-1].content.strip()
-
-    # If neither is available, return a safe default
     return "No decision produced by agent."
 
+# --- Batch run ---
 results = []
-print("Processing 10 test records...")
+print("Processing test records...")
 for rec in test_records:
     print(f"→ {rec['patient_id']}")
     resp = run_claim(rec)
     results.append({"patient_id": rec["patient_id"], "generated_response": resp})
 
 submission_df = pd.DataFrame(results)[["patient_id", "generated_response"]]
-submission_df.to_csv(f"{base_path}/submission.csv", index=False)
+submission_df.to_csv("submission.csv", index=False)
 
-print("\nDONE! submission.csv created with 10 rows (S001-S010)")
-display(submission_df)
-
-
-
-import json
-import pandas as pd
-from datetime import datetime
-from typing import Dict, Any
-from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.output_parsers import StrOutputParser
-from langgraph.graph import StateGraph, MessagesState
-from langgraph.prebuilt import ToolNode, tools_condition, create_react_agent
-from langchain_core.tools import tool
-from dateutil import parser
-import os
-os.environ["OPENAI_API_KEY"] = "sk-" + "ant" + "api" + "key"
-
-# Starting directory (current working directory)
-start_dir = '.'
-
-# File name to search
-target_file = 'reference_codes.json'
-
-# Walk through directories and find matches
-matches = []
-for root, dirs, files in os.walk(start_dir):
-    if target_file in files:
-        matches.append(os.path.join(root, target_file))
-
-if matches:
-    print("Found the file at:")
-    for match in matches:
-        print(match)
-else:
-    print(f"'{target_file}' not found under {os.path.abspath(start_dir)}")
-
-
-os.environ["OPENAI_API_KEY"] = "9b5ad71b2ce5302211f9c61530b329a4922fc6a4"
-
-llm = ChatOpenAI(
-    model="gpt-4o-mini",
-    temperature=0
-)
-
-with open("./Data/reference_codes.json") as f:
-    reference_codes = json.load(f)
-
-with open("./Data/insurance_policies.json") as f:
-    policies_raw = json.load(f)
-    policy_dict = {p["policy_id"]: p for p in policies_raw}
-
-with open("./Data/validation_records.json") as f:
-    validation_records = json.load(f)
-
-with open("./Data/test_records.json") as f:
-    test_records = json.load(f)
-
-# Add age to every record
-def calc_age(dob, dos):
-    b = datetime.strptime(dob, "%Y-%m-%d")
-    s = datetime.strptime(dos, "%Y-%m-%d")
-    age = s.year - b.year
-    if (s.month, s.day) < (b.month, b.day):
-        age -= 1
-    return age
-
-for recs in [validation_records, test_records]:
-    for r in recs:
-        r['age'] = calc_age(r['date_of_birth'], r['date_of_service'])
-
-ref_str = json.dumps(reference_codes, indent=2)
-
-@tool
-def summarize_patient_record(record_str: str) -> str:
-    """Create structured patient summary"""
-    prompt = f"""You are an expert insurance summarizer.
-Use these code descriptions (never make up codes):
-ICD-10: {json.dumps({k:v for k,v in reference_codes.items() if not k.isdigit()}, ensure_ascii=False)}
-CPT: {json.dumps({k:v for k,v in reference_codes.items() if k.isdigit()}, ensure_ascii=False)}
-
-Return ONLY this exact format:
-
-• Patient Demographics: [Name], [Gender], age [Age]
-• Insurance Policy ID: [PolicyID]
-• Diagnoses and Descriptions: [CODE] - [Description] (one per line)
-• Procedures and Descriptions: [CODE] - [Description]
-• Preauthorization Status: [Yes/No/Required but not obtained]
-• Billed Amount (in USD): [Amount]
-• Date of Service: [Date]
-
-Patient record:
-{record_str}"""
-    return llm.invoke(prompt).content
-
-@tool
-def summarize_policy_guideline(policy_id: str) -> str:
-    """Create structured policy summary"""
-    policy = policy_dict.get(policy_id)
-    if not policy:
-        return "Policy not found"
-    
-    prompt = f"""You are an expert policy summarizer.
-Use the reference codes below to expand CPT and ICD-10 codes.
-
-Return ONLY this format:
-
-• Policy Details: {policy_id} - {policy.get('plan_name','')}
-• Covered Procedures:
-{{for each procedure}}
-  - Procedure Code and Description: [CPT] - [full description]
-    Covered Diagnoses and Descriptions: [ICD1] - [desc1], [ICD2] - [desc2], ...
-    Gender Restriction: {policy['covered_procedures'][i].get('gender','Any')}
-    Age Range: {policy['covered_procedures'][i]['age_range'][0]} to {policy['covered_procedures'][i]['age_range'][1]} (inclusive min, exclusive max)
-    Preauthorization Requirement: {'Yes' if policy['covered_procedures'][i].get('requires_preauthorization') else 'No'}
-    Notes on Coverage: {policy['covered_procedures'][i].get('notes','None')}
-
-Reference codes: {json.dumps(reference_codes, ensure_ascii=False)}"""
-    return llm.invoke(prompt).content
-
-@tool
-def check_claim_coverage(record_summary: str, policy_summary: str) -> str:
-    """Final coverage decision with reasoning"""
-    prompt = f"""You are a strict claims adjudicator.
-Approve ONLY if ALL these are true:
-- Procedure exactly matches a covered CPT
-- At least one diagnosis matches the allowed list for that CPT
-- Age >= min and < max (max exclusive)
-- Gender matches (Any = ok)
-- Preauth required → must be obtained
-
-Patient summary:
-{record_summary}
-
-Policy summary:
-{policy_summary}
-
-Return exactly these three sections:
-• Coverage Review: step-by-step pass/fail checks
-• Summary of Findings: bullets of passed/failed
-• Final Decision: APPROVE or ROUTE FOR REVIEW + one-sentence reason"""
-    return llm.invoke(prompt).content
-
-tools = [summarize_patient_record, summarize_policy_guideline, check_claim_coverage]
-
-system_prompt = """You are a Healthcare Insurance Claim Approval Agent.
-You have exactly 3 tools. Always use them in this exact order:
-
-1. Call summarize_patient_record with the full patient JSON
-2. Extract the Policy ID from its output and call summarize_policy_guideline
-3. Call check_claim_coverage with both summaries
-4. After the 3rd tool returns, output the final decision.
-
-Final output must be exactly:
-
-Decision: APPROVE
-Reason: <short accurate reason with codes, age, gender, preauth>
-
-OR
-
-Decision: ROUTE FOR REVIEW
-Reason: <short reason why not approved>
-
-No markdown, no extra text, no bullets."""
-
-#agent_executor = create_react_agent(model=llm, tools=tools)
-
-def run_claim(rec: dict) -> str:
-    """
-    Evaluate a single insurance claim record using the agent executor.
-    Handles both new-style 'output' and legacy 'messages' return formats.
-    """
-    # Build the conversation context
-    messages = [
-        SystemMessage(content=system_prompt),
-        HumanMessage(content="Evaluate this insurance claim:\n" + json.dumps(rec, indent=2))
-    ]
-
-    # Invoke the agent
-    result = agent_executor.invoke({"messages": messages})
-
-    # Debug: inspect the raw result if needed
-    # print("DEBUG result:", result)
-
-    # Prefer the new 'output' field if present
-    if "output" in result and result["output"]:
-        return result["output"].strip()
-
-    # Fallback: extract from messages list
-    if "messages" in result and result["messages"]:
-        return result["messages"][-1].content.strip()
-
-    # If neither is available, return a safe default
-    return "No decision produced by agent."
-
-results = []
-print("Processing 10 test records...")
-for rec in test_records:
-    print(f"→ {rec['patient_id']}")
-    resp = run_claim(rec)
-    results.append({"patient_id": rec["patient_id"], "generated_response": resp})
-
-submission_df = pd.DataFrame(results)[["patient_id", "generated_response"]]
-submission_df.to_csv(f"{base_path}/submission.csv", index=False)
-
-print("\nDONE! submission.csv created with 10 rows (S001-S010)")
-display(submission_df)
-
+print("\nDONE! submission.csv created")
+submission_df.head()
