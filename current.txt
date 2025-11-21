@@ -1,41 +1,28 @@
-tools = [summarize_patient_record, summarize_policy_guideline, check_claim_coverage]
-
-system_prompt = """You are a Healthcare Insurance Claim Approval Agent.
-Use the 3 tools in EXACT order:
-1. summarize_patient_record (full JSON)
-2. summarize_policy_guideline (policy_id)
-3. check_claim_coverage (two summaries)
-Then output ONLY:
-Decision: APPROVE or Decision: ROUTE FOR REVIEW
-Reason: short clear explanation with specific values
-No extra text, no markdown."""
-
-agent_executor = create_react_agent(model=llm, tools=tools, prompt=system_prompt)
+Agent Creation Create a ReAct-style single agent using LangGraph: 
+• Option 1: Manually construct the agent with defined logic 
+• Option 2: Use the built-in create_react_agent() method with 
+proper configuration
 
 
-TypeError: StateGraph.add_node() got an unexpected keyword argument 'input_schema'
+TypeError: create_react_agent() got an unexpected keyword argument 'state_modifier'
 ---------------------------------------------------------------------------
 TypeError                                 Traceback (most recent call last)
-File <command-5180344499318147>, line 136
-    124 tools = [summarize_patient_record, summarize_policy_guideline, check_claim_coverage]
-    126 system_prompt = """You are a Healthcare Insurance Claim Approval Agent.
-    127 Use the 3 tools in EXACT order:
-    128 1. summarize_patient_record (full JSON)
+File <command-6815836300103224>, line 167
+    142 system_prompt = """
+    143 You are an expert Healthcare Insurance Claim Approval Agent.
+    144 You have exactly three tools and must use them in this exact order:
    (...)
-    133 Reason: short clear explanation with specific values
-    134 No extra text, no markdown."""
---> 136 agent_executor = create_react_agent(model=llm, tools=tools, prompt=system_prompt)
+    161 Do not add extra headings, explanations, or text outside these two lines.
+    162 """
+    164 # ----------------------------------------------------------------------
+    165 # 6. CREATE THE ReAct AGENT
+    166 # ----------------------------------------------------------------------
+--> 167 react_agent = create_react_agent(
+    168     llm,
+    169     tools,
+    170     state_modifier=SystemMessage(content=system_prompt)
+    171 )
+    173 def run_agent_on_record(patient_record: Dict) -> str:
+    174     record_str = json.dumps(patient_record, indent=2)
 
-File /local_disk0/.ephemeral_nfs/envs/pythonEnv-a4b12554-9008-4b5a-86ef-a68f1a4a133c/lib/python3.12/site-packages/langgraph/prebuilt/chat_agent_executor.py:663, in create_react_agent(model, tools, prompt, response_format, pre_model_hook, post_model_hook, state_schema, config_schema, checkpointer, store, interrupt_before, interrupt_after, debug, version, name)
-    660 workflow = StateGraph(state_schema or AgentState, config_schema=config_schema)
-    662 # Define the two nodes we will cycle between
---> 663 workflow.add_node(
-    664     "agent",
-    665     RunnableCallable(call_model, acall_model),
-    666     input_schema=input_schema,
-    667 )
-    668 workflow.add_node("tools", tool_node)
-    670 # Optionally add a pre-model hook node that will be called
-    671 # every time before the "agent" (LLM-calling node)
-
-TypeError: StateGraph.add_node() got an unexpected keyword argument 'input_schema'
+TypeError: create_react_agent() got an unexpected keyword argument 'state_modifier'
