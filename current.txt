@@ -1,8 +1,19 @@
-INFO:py4j.clientserver:Received command c on object id p0
-Found the file at:
-./Data/reference_codes.json
+tools = [summarize_patient_record, summarize_policy_guideline, check_claim_coverage]
 
-TypeError: create_react_agent() got an unexpected keyword argument 'messages_modifier'
+system_prompt = """You are a Healthcare Insurance Claim Approval Agent.
+Use the 3 tools in EXACT order:
+1. summarize_patient_record (full JSON)
+2. summarize_policy_guideline (policy_id)
+3. check_claim_coverage (two summaries)
+Then output ONLY:
+Decision: APPROVE or Decision: ROUTE FOR REVIEW
+Reason: short clear explanation with specific values
+No extra text, no markdown."""
+
+agent_executor = create_react_agent(model=llm, tools=tools, prompt=system_prompt)
+
+
+TypeError: StateGraph.add_node() got an unexpected keyword argument 'input_schema'
 ---------------------------------------------------------------------------
 TypeError                                 Traceback (most recent call last)
 File <command-5180344499318147>, line 136
@@ -13,6 +24,18 @@ File <command-5180344499318147>, line 136
    (...)
     133 Reason: short clear explanation with specific values
     134 No extra text, no markdown."""
---> 136 agent_executor = create_react_agent(model=llm, tools=tools, messages_modifier=system_prompt)
+--> 136 agent_executor = create_react_agent(model=llm, tools=tools, prompt=system_prompt)
 
-TypeError: create_react_agent() got an unexpected keyword argument 'messages_modifier'
+File /local_disk0/.ephemeral_nfs/envs/pythonEnv-a4b12554-9008-4b5a-86ef-a68f1a4a133c/lib/python3.12/site-packages/langgraph/prebuilt/chat_agent_executor.py:663, in create_react_agent(model, tools, prompt, response_format, pre_model_hook, post_model_hook, state_schema, config_schema, checkpointer, store, interrupt_before, interrupt_after, debug, version, name)
+    660 workflow = StateGraph(state_schema or AgentState, config_schema=config_schema)
+    662 # Define the two nodes we will cycle between
+--> 663 workflow.add_node(
+    664     "agent",
+    665     RunnableCallable(call_model, acall_model),
+    666     input_schema=input_schema,
+    667 )
+    668 workflow.add_node("tools", tool_node)
+    670 # Optionally add a pre-model hook node that will be called
+    671 # every time before the "agent" (LLM-calling node)
+
+TypeError: StateGraph.add_node() got an unexpected keyword argument 'input_schema'
