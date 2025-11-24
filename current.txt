@@ -1,3 +1,18 @@
+requirements = f"/Volumes/prod_ai_dojo/wheelhouse/genai/capstone/{serverless_version}/shim.txt"
+constraints = f"/Volumes/prod_ai_dojo/wheelhouse/genai/capstone/{serverless_version}/constraints.txt"
+pymupdf = f"/Volumes/prod_ai_dojo/wheelhouse/genai/course3/1/pymupdf-1.25.5-cp39-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl"
+
+%pip install -r $requirements -c $constraints
+%pip install $pymupdf
+dbutils.library.restartPython()
+print("The kernel has been restarted and you can now run the notebook.")
+
+import os
+os.environ["ANONYMIZED_TELEMETRY"]="False"
+tiktoken_cache_dir = os.path.abspath("./.setup/tiktoken_cache/")
+os.environ["TIKTOKEN_CACHE_DIR"] = tiktoken_cache_dir
+os.environ["DEEPEVAL_TELEMETRY_OPT_OUT"] = "YES"
+
 # =============================================================================
 # CAPSTONE 2 – FINAL WORKING SOLUTION (UHG DATABRICKS + UAIS)
 # Matches submission guide video 100% – Scores 12/12
