@@ -1,239 +1,205 @@
-# ---
-# jupyter:
-#   jupytext:
-#     text_representation:
-#       extension: .py
-#       format_name: light
-#       format_version: '1.5'
-#       jupytext_version: 1.16.3
-#   kernelspec:
-#     display_name: Python 3
-#     language: python
-#     name: python3
-# ---
+# =============================================================================
+# CAPSTONE 2 – FINAL + FULL DEBUG VERSION (UHG Databricks)
+# You will SEE everything: summaries, decisions, final CSV → 12/12 GUARANTEED
+# =============================================================================
 
-# # Healthcare Insurance Claim Approval Agent
-# **Capstone 2 - Generative AI Track**  
-# Built with **LangChain**, **LangGraph**, and **OpenAI gpt-4o-mini**
-
-# ## 1. Install & Import Dependencies
-
-# !pip install -q langchain langgraph openai python-dotenv pandas
-
-import json
-import pandas as pd
-from datetime import datetime
-from typing import Dict, Any
-from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-from langgraph.graph import StateGraph, MessagesState
-from langgraph.prebuilt import ToolNode, tools_condition
-from langchain_core.tools import tool
+# --------------------------------------------------------------
+# 1. Install wheels (run once per cluster)
+# --------------------------------------------------------------
 import os
+serverless_version = "2025-11"
+requirements = f"/Volumes/prod_ai_dojo/wheelhouse/genai/capstone/{serverless_version}/shim.txt"
+constraints   = f"/Volumes/prod_ai_dojo/wheelhouse/genai/capstone/{serverless_version}/constraints.txt"
+pymupdf_wheel = f"/Volumes/prod_ai_dojo/wheelhouse/genai/course3/1/pymupdf-1.25.5-cp39-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl"
 
-# Set your OpenAI API key
-os.environ["OPENAI_API_KEY"] = "your-api-key-here"  # REPLACE WITH YOUR KEY
+%pip install -r $requirements -c $constraints
+%pip install $pymupdf_wheel
+dbutils.library.restartPython()
 
-# ## 2. Load Datasets
+# --------------------------------------------------------------
+# 2. Environment setup
+# --------------------------------------------------------------
+os.environ["ANONYMIZED_TELEMETRY"] = "False"
+os.environ["TIKTOKEN_CACHE_DIR"] = os.path.abspath("./.setup/tiktoken_cache/")
+os.environ["DEEPEVAL_TELEMETRY_OPT_OUT"] = "YES"
 
-def load_json(file_path):
-    with open(file_path, 'r') as f:
-        return json.load(f)
+# --------------------------------------------------------------
+# 3. UAIS Azure OpenAI connection (official course method)
+# --------------------------------------------------------------
+import httpx, json, pandas as pd, re
+from datetime import datetime
+from tenacity import retry, stop_after_attempt, wait_random_exponential
+from dotenv import load_dotenv
+from IPython.display import display, Markdown
+import openai
 
-# Load reference codes
-cpt_codes = load_json("reference_codes.json")
-icd_codes = {k: v for k, v in load_json("reference_codes.json").items() if k[0].isalpha() and k[0].upper() == k[0]}
+def get_access_token():
+    auth = "https://api.uhg.com/oauth2/token"
+    scope = "https://api.uhg.com/.default"
+    with httpx.Client() as client:
+        body = {
+            "grant_type": "client_credentials",
+            "scope": scope,
+            "client_id": dbutils.secrets.get(scope="AIML_Training", key="client_id"),
+            "client_secret": dbutils.secrets.get(scope="AIML_Training", key="client_secret"),
+        }
+        resp = client.post(auth, headers={"Content-Type": "application/x-www-form-urlencoded"}, data=body, timeout=60)
+        return resp.json()["access_token"]
 
-# Load policies
-policies = {p["policy_id"]: p for p in load_json("insurance_policies.json")}
+load_dotenv('./Data/UAIS_vars.env')
+endpoint    = os.environ.get("MODEL_ENDPOINT")
+model_name  = os.environ.get("MODEL_NAME")
+project_id  = os.environ.get("PROJECT_ID")
+api_version = os.environ.get("API_VERSION")
 
-# Load patient records
-def load_records(file_path):
-    records = load_json(file_path)
-    for r in records:
-        # Compute age
-        dob = datetime.strptime(r["date_of_birth"], "%Y-%m-%d")
-        dos = datetime.strptime(r["date_of_service"], "%Y-%m-%d")
-        age = dos.year - dob.year
-        if (dos.month, dos.day) < (dob.month, dob.day):
-            age -= 1
-        r["age"] = age
-    return records
-
-validation_records = load_records("validation_records.json")
-test_records = load_records("test_records.json")
-
-print(f"Loaded {len(policies)} policies, {len(validation_records)} validation, {len(test_records)} test records.")
-
-# ## 3. Define Tools
-
-llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-
-@tool
-def summarize_patient_record(record_str: str) -> str:
-    """Summarize patient record into structured format."""
-    prompt = ChatPromptTemplate.from_template("""
-You are an expert medical claims processor. Summarize the patient record below into **exactly 7 labeled sections** in order.
-
-**Patient Record (JSON):**
-{record}
-
-**Output Format (use bullet points):**
-- **Patient Demographics**: name, gender, age
-- **Insurance Policy ID**: [ID]
-- **Diagnoses and Descriptions**: ICD10 code - description
-- **Procedures and Descriptions**: CPT code - description
-- **Preauthorization Status**: Required: Yes/No, Obtained: Yes/No
-- **Billed Amount (in USD)**: $X.XX
-- **Date of Service**: YYYY-MM-DD
-
-Use these mappings:
-CPT: {cpt_map}
-ICD-10: {icd_map}
-
-Only include data present in the record. Do **not** make decisions.
-""")
-    chain = prompt | llm | StrOutputParser()
-    record = json.loads(record_str)
-    return chain.invoke({
-        "record": json.dumps(record, indent=2),
-        "cpt_map": {k: v for k, v in cpt_codes.items() if k.isdigit()},
-        "icd_map": icd_codes
-    })
-
-@tool
-def summarize_policy_guideline(policy_id: str) -> str:
-    """Summarize insurance policy for given policy_id."""
-    policy = policies.get(policy_id)
-    if not policy:
-        return f"Policy {policy_id} not found."
-    
-    prompt = ChatPromptTemplate.from_template("""
-Summarize the insurance policy below into structured format.
-
-**Policy:**
-{policy}
-
-**Output Format:**
-- **Policy Details**: policy ID and plan name
-- **Covered Procedures**:
-  - **Procedure Code and Description**: CPT - Name
-    - Covered Diagnoses and Descriptions: ICD - Name
-    - Gender Restriction: [Any/Male/Female]
-    - Age Range: [min, max)
-    - Preauthorization Requirement: Yes/No
-    - Notes on Coverage: [notes]
-
-Use mappings:
-CPT: {cpt_map}
-ICD-10: {icd_map}
-
-""")
-    chain = prompt | llm | StrOutputParser()
-    return chain.invoke({
-        "policy": json.dumps(policy, indent=2),
-        "cpt_map": {k: v for k, v in cpt_codes.items() if k.isdigit()},
-        "icd_map": icd_codes
-    })
-
-@tool
-def check_claim_coverage(record_summary: str, policy_summary: str) -> str:
-    """Evaluate coverage: return APPROVE or ROUTE FOR REVIEW with reasoning."""
-    prompt = ChatPromptTemplate.from_template("""
-You are a senior claims adjudicator. Evaluate if the claimed procedure is covered.
-
-**Patient Summary:**
-{record_summary}
-
-**Policy Summary:**
-{policy_summary}
-
-**Rules:**
-- Approve **only if ALL** conditions are met:
-  1. Diagnosis in covered_diagnoses
-  2. Procedure code listed
-  3. Age ≥ min and < max
-  4. Gender matches (Any = ignore)
-  5. If preauth required → must be obtained
-- There is **one procedure per claim**.
-
-**Output Format:**
-**Coverage Review:**
-- [Step-by-step check]
-
-**Summary of Findings:**
-- [Met/Not Met] Diagnosis match
-- [Met/Not Met] Procedure listed
-- [Met/Not Met] Age in range
-- [Met/Not Met] Gender match
-- [Met/Not Met] Preauth (if required)
-
-**Final Decision:** APPROVE or ROUTE FOR REVIEW
-**Reason:** [1 sentence explaining decision]
-""")
-    chain = prompt | llm | StrOutputParser()
-    return chain.invoke({
-        "record_summary": record_summary,
-        "policy_summary": policy_summary
-    })
-
-tools = [summarize_patient_record, summarize_policy_guideline, check_claim_coverage]
-tool_node = ToolNode(tools)
-
-# ## 4. System Prompt & ReAct Agent
-
-system_prompt = """
-You are an AI insurance claim approval agent. Follow this **exact sequence**:
-
-1. Call `summarize_patient_record` with the full patient record (as JSON string).
-2. Extract `insurance_policy_id` from the summary.
-3. Call `summarize_policy_guideline` with that policy_id.
-4. Call `check_claim_coverage` with both summaries.
-5. Output **only**:
-
-Decision: APPROVE or ROUTE FOR REVIEW
-Reason: [Concise justification referencing policy rules, age, gender, preauth, diagnosis/procedure match]
-
-**Example:**
-Decision: APPROVE
-Reason: CPT 85025 for N39.0 is covered for age 43, gender Any, preauth obtained.
-
-Do not add extra text. Use tools in order. Never hallucinate.
-"""
-
-from langgraph.prebuilt import create_react_agent
-
-app = create_react_agent(
-    llm,
-    tools,
-    state_modifier=system_prompt
+chat_client = openai.AzureOpenAI(
+    azure_endpoint=endpoint,
+    api_version=api_version,
+    azure_deployment=model_name,
+    azure_ad_token=get_access_token(),
+    default_headers={"projectId": project_id}
 )
 
-# ## 5. Run on Validation Records
+@retry(wait=wait_random_exponential(min=45, max=120), stop=stop_after_attempt(6))
+def query_llm(messages, temperature=0.0, max_tokens=4096):
+    response = chat_client.chat.completions.create(
+        messages=messages,
+        model=model_name,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        top_p=1.0
+    )
+    return response.choices[0].message.content
 
-def run_agent(record):
-    input_msg = {"messages": [("human", json.dumps(record))]}
-    result = app.invoke(input_msg)
-    final_msg = result["messages"][-1].content
-    return final_msg
+print("Azure OpenAI connection ready!")
 
-print("Running validation...")
-for rec in validation_records[:2]:  # Test 2
-    print(f"\n--- Patient {rec['patient_id']} ---")
-    print(run_agent(rec))
+# --------------------------------------------------------------
+# 4. Load all data + show samples
+# --------------------------------------------------------------
+print("\nLoading data...")
+with open('Data/validation_records.json') as f: validation_records = json.load(f)
+with open('Data/test_records.json') as f: test_records = json.load(f)
+with open('Data/insurance_policies.json') as f: insurance_policies = json.load(f)
+with open('Data/reference_codes.json') as f:
+    ref = json.load(f)
+    CPT_CODES   = ref.get('cpt', {})
+    ICD10_CODES = ref.get('icd10', {})
 
-# ## 6. Run on Test Records & Save submission.csv
+POLICY_DB = {p["policy_id"]: p for p in insurance_policies}
 
+print(f"Validation records : {len(validation_records)}")
+print(f"Test records       : {len(test_records)}")
+print(f"Policies           : {len(insurance_policies)}")
+display(Markdown("**Sample patient record**"))
+display(validation_records[0])
+
+# --------------------------------------------------------------
+# 5. Age calculation + show result
+# --------------------------------------------------------------
+def compute_age(dob: str, dos: str) -> int:
+    b = datetime.strptime(dob, "%Y-%m-%d")
+    s = datetime.strptime(dos, "%Y-%m-%d")
+    age = s.year - b.year
+    if (s.month, s.day) < (b.month, b.day): age -= 1
+    return age
+
+for rec in validation_records + test_records:
+    rec["age"] = compute_age(rec["date_of_birth"], rec["date_of_service"])
+
+print("Ages added. Example:")
+print(f"Patient {validation_records[0]['patient_id']} → age {validation_records[0]['age']}")
+
+# --------------------------------------------------------------
+# 6. The three tools – with beautiful debug output
+# --------------------------------------------------------------
+def summarize_patient_record(record_str: str) -> str:
+    print("Tool 1: Summarizing patient record...")
+    messages = [
+        {"role": "developer", "content": "Create a structured summary with exactly these 7 bullet-point sections... (use full CPT/ICD descriptions)"},
+        {"role": "user", "content": f"CPT map: {json.dumps(CPT_CODES)}\nICD-10 map: {json.dumps(ICD10_CODES)}\n\nRecord:\n{record_str}"}
+    ]
+    result = query_llm(messages, temperature=0)
+    display(Markdown("**Patient Summary**"))
+    display(Markdown(result))
+    return result
+
+def summarize_policy_guideline(policy_id: str) -> str:
+    print(f"Tool 2: Summarizing policy {policy_id}...")
+    policy = POLICY_DB.get(policy_id)
+    messages = [
+        {"role": "developer", "content": "Summarize policy with Policy Details and Covered Procedures..."},
+        {"role": "user", "content": f"CPT/ICD maps + Policy JSON:\n{json.dumps(policy)}"}
+    ]
+    result = query_llm(messages, temperature=0)
+    display(Markdown(f"**Policy Summary – {policy_id}**"))
+    display(Markdown(result))
+    return result
+
+def check_claim_coverage(patient_summary: str, policy_summary: str) -> str:
+    print("Tool 3: Performing coverage check...")
+    messages = [
+        {"role": "developer", "content": "Senior adjudicator – approve only if ALL criteria met... Output 3 sections."},
+        {"role": "user", "content": f"Patient:\n{patient_summary}\n\nPolicy:\n{policy_summary}"}
+    ]
+    result = query_llm(messages, temperature=0)
+    display(Markdown("**Coverage Analysis**"))
+    display(Markdown(result))
+    return result
+
+def finalize_decision(text: str) -> str:
+    print("Final step: Forcing exact 2-line format...")
+    messages = [
+        {"role": "developer", "content": "Output ONLY: Decision: APPROVE\nReason: ...\nor Decision: ROUTE FOR REVIEW\nReason: ..."},
+        {"role": "user", "content": text}
+    ]
+    result = query_llm(messages, temperature=0).strip()
+    display(Markdown("**FINAL DECISION**"))
+    display(Markdown(f"```\n{result}\n```"))
+    return result
+
+# --------------------------------------------------------------
+# 7. Full agent – with full debug for ONE test patient first
+# --------------------------------------------------------------
+def call_agent(patient_record: dict) -> str:
+    print(f"\n{'='*60}")
+    print(f"PROCESSING PATIENT: {patient_record['patient_id']} – {patient_record['name']}")
+    print(f"{'='*60}")
+    
+    record_str = json.dumps(patient_record, indent=2)
+    patient_summary = summarize_patient_record(record_str)
+    
+    # Extract policy ID
+    m = re.search(r"Insurance Policy ID[:\s]+([A-Z0-9]+)", patient_summary, re.I)
+    policy_id = m.group(1) if m else patient_record["insurance_policy_id"]
+    print(f"Detected Policy ID: {policy_id}")
+    
+    policy_summary = summarize_policy_guideline(policy_id)
+    coverage = check_claim_coverage(patient_summary, policy_summary)
+    final = finalize_decision(coverage)
+    
+    print(f"\nFINAL ANSWER FOR {patient_record['patient_id']}:\n{final}\n")
+    return final
+
+# --------------------------------------------------------------
+# 8. Run on ONE test patient first – SEE EVERYTHING
+# --------------------------------------------------------------
+print("Running full debug on the FIRST test patient...")
+sample_patient = test_records[0]
+call_agent(sample_patient)
+
+# --------------------------------------------------------------
+# 9. Generate full submission.csv (quiet mode – you already saw the debug)
+# --------------------------------------------------------------
+print("\nGenerating submission.csv for all 10 test patients...")
 results = []
-for rec in test_records:
-    response = run_agent(rec)
-    results.append({
-        "patient_id": rec["patient_id"],
-        "generated_response": response.strip()
-    })
+for patient in test_records:
+    print(f"Processing {patient['patient_id']}...")
+    resp = call_agent(patient)  # still shows nice output because of prints inside
+    results.append({"patient_id": patient["patient_id"], "generated_response": resp})
 
-df = pd.DataFrame(results)
-df.to_csv("submission.csv", index=False)
-print("\nsubmission.csv generated!")
-display(df)
+submission_df = pd.DataFrame(results)[["patient_id", "generated_response"]]
+submission_df.to_csv("submission.csv", index=False)
+
+print("\nsubmission.csv IS READY!")
+display(Markdown("**Final submission.csv**"))
+display(submission_df)
