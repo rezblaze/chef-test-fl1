@@ -1,178 +1,45 @@
-import os
-os.environ["OPENAI_API_KEY"] = "sk-" + "ant" + "api" + "key"  # this magic line works in all Coursera/Databricks capstone labs
-
-=====================================================================================================
-Workspace
-Users
-ME.com
-Capstone
-
-
-# ULTIMATE AUTO-FINDER — works in every single lab version
-import os
-import glob
-
-# Search the entire environment for the capstone files
-paths = glob.glob("/dbfs/**/reference_codes.json", recursive=True)
-
-if not paths:
-    print("Still looking...")
-else:
-    folder = os.path.dirname(paths[0])
-    print(f"Found the files in: {folder}")
-    os.chdir(folder)
-    print("Changed working directory — you're good to go!")
-    print("Files in this folder:", os.listdir(".")[:15])
-====================================================================================================
-
-!pip install -q langgraph langchain-openai pandas
-
-import json, pandas as pd
-from datetime import datetime
-from langchain_openai import ChatOpenAI
-from langchain_core.tools import tool
-from langgraph.prebuilt import create_react_agent
-from langchain_core.messages import HumanMessage
-
-# LLM
-llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-
-# Load data
-reference_codes = json.load(open('reference_codes.json'))
-policies = json.load(open('insurance_policies.json'))
-validation_records = json.load(open('validation_records.json'))
-test_records = json.load(open('test_records.json'))
-
-# Build policy lookup
-policies_dict = {p['policy_id']: p for p in policies}
-
-# Add age to every record
-def calc_age(dob, dos):
-    b = datetime.strptime(dob, "%Y-%m-%d")
-    s = datetime.strptime(dos, "%Y-%m-%d")
-    age = s.year - b.year
-    if (s.month, s.day) < (b.month, b.day):
-        age -= 1
-    return age
-
-for recs in [validation_records, test_records]:
-    for r in recs:
-        r['age'] = calc_age(r['date_of_birth'], r['date_of_service'])
-
-ref_str = json.dumps(reference_codes, indent=2)
-
-# TOOL 1
-@tool
-def summarize_patient_record(rec_str: str) -> str:
-    prompt = f"""Use reference codes:\n{ref_str}\n\nPatient JSON:\n{rec_str}\n\nOutput exactly:\nPatient Demographics:\n- Name: ...\n- Gender: ...\n- Age: ...\n\nInsurance Policy ID: ...\n\nDiagnoses and Descriptions:\n- ...\n\nProcedures and Descriptions:\n- ...\n\nPreauthorization Status: ...\n\nBilled Amount (in USD): ...\n\nDate of Service: ..."""
-    return llm.invoke([("system", prompt), ("human", "Summarize")]).content
-
-# TOOL 2
-@tool
-def summarize_policy_guideline(policy_id: str) -> str:
-    policy = policies_dict.get(policy_id)
-    if not policy: return "Policy not found"
-    prompt = f"""Policy data:\n{json.dumps(policy, indent=2)}\nReference codes:\n{ref_str}\n\nOutput exactly in this format:\nPolicy Details:\n- Policy ID: ...\n- Plan Name: ...\n\nCovered Procedures:\n- Procedure Code and Description: ...\n  Covered Diagnoses and Descriptions:\n  - ...\n  Gender Restriction: ...\n  Age Range: ... - ...\n  Preauthorization Requirement: ...\n  Notes on Coverage: ..."""
-    return llm.invoke([("system", prompt), ("human", "Summarize")]).content
-
-# TOOL 3
-@tool
-def check_claim_coverage(pat_sum: str, pol_sum: str) -> str:
-    prompt = f"""You approve ONLY if ALL true:\n• Procedure in policy\n• Diagnosis matches\n• Age ≥ lower AND < upper\n• Gender matches or 'Any'\n• Preauth required → obtained\n\nPatient:\n{pat_sum}\n\nPolicy:\n{pol_sum}\n\nOutput exactly:\nCoverage Review: ...\nSummary of Findings: ...\nFinal Decision: APPROVE - reason OR ROUTE FOR REVIEW - reason"""
-    return llm.invoke([("system", prompt), ("human", "Check")]).content
-
-tools = [summarize_patient_record, summarize_policy_guideline, check_claim_coverage]
-
-system_prompt = """You are a Healthcare Insurance Claim Approval Agent.
-Use the 3 tools in EXACT order:
-1. summarize_patient_record (full JSON)
-2. summarize_policy_guideline (policy_id)
-3. check_claim_coverage (two summaries)
-Then output ONLY:
-Decision: APPROVE  or  Decision: ROUTE FOR REVIEW
-Reason: short clear explanation with specific values
-No extra text, no markdown."""
-
-agent = create_react_agent(llm, tools, messages_modifier=system_prompt)
-
-def run_claim(rec):
-    msg = HumanMessage(content="Evaluate:\n" + json.dumps(rec))
-    result = agent.invoke({"messages": [msg]})
-    return result["messages"][-1].content.strip()
-
-print("Agent ready! Run the next cell to create submission.csv")
-
-
-
-====================================================================================================================
-
-# FINAL CELL — RUN THIS TO GENERATE submission.csv
-results = []
-for rec in test_records:
-    print(f"Processing {rec['patient_id']}...")
-    resp = run_claim(rec)
-    results.append({"patient_id": rec["patient_id"], "generated_response": resp})
-
-df = pd.DataFrame(results)[["patient_id", "generated_response"]]
-df.to_csv("submission.csv", index=False)
-print("\nsubmission.csv is ready!")
-display(df)
-
-
-
-VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV
-# %% [markdown]
-# # Healthcare Insurance Claim Approval Agent - Capstone 2
-# Fully working solution using LangGraph + ReAct Agent + 3 Tools
-# Model: gpt-4o-mini (or change to gpt-4.1-mini if you prefer)
-
-# %% 
-# 1. Environment Setup
-!pip install -q langgraph langchain langchain-openai pandas python-dotenv
+# =============================================================================
+# CAPSTONE 2 – Healthcare Insurance Claim Approval Agent
+# FULLY WORKING – Manual ReAct Agent (Option 1) – 100% compatible Nov 2025
+# =============================================================================
 
 import json
-import pandas as pd
 from datetime import datetime
 from typing import List, Dict, Any
+import pandas as pd
 
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.prompts import ChatPromptTemplate
-from langgraph.prebuilt import create_react_agent
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+from langchain.tools import tool
+from langgraph.graph import StateGraph, MessagesState, START, END
+from langgraph.prebuilt import ToolNode, tools_condition
 
-# Put your OpenAI API key here (or use Azure OpenAI endpoint)
-import os
-os.environ["OPENAI_API_KEY"] = "YOUR_API_KEY_HERE"   # ← CHANGE THIS
+# ----------------------------------------------------------------------
+# 1. LLM SETUP
+# ----------------------------------------------------------------------
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)  # or gpt-4.1-mini
 
-llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-
-# %% [markdown]
-# # 2. Load All Datasets
-
-# %%
-# Load reference codes (ICD-10 & CPT descriptions)
-with open("reference_codes.json", "r") as f:
-    reference_codes = json.load(f)
-
-# Load insurance policies
+# ----------------------------------------------------------------------
+# 2. LOAD ALL DATA
+# ----------------------------------------------------------------------
 with open("insurance_policies.json", "r") as f:
     policies = json.load(f)
-    # Convert to dict for fast lookup
-    policy_dict = {p["policy_id"]: p for p in policies}
 
-# Load validation & test records
+with open("reference_codes.json", "r") as f:
+    ref_codes = json.load(f)
+    icd10_map = ref_codes.get("icd10", {})
+    cpt_map = ref_codes.get("cpt", {})
+
 with open("validation_records.json", "r") as f:
     validation_records = json.load(f)
 
 with open("test_records.json", "r") as f:
     test_records = json.load(f)
 
-# %% [markdown]
-# # 3. Age Calculation Utility
-
-# %%
+# ----------------------------------------------------------------------
+# 3. ACCURATE AGE CALCULATION (Python – no LLM math errors)
+# ----------------------------------------------------------------------
 def compute_age(dob: str, dos: str) -> int:
-    """Compute exact age on date of service (standard healthcare method)"""
     birth = datetime.strptime(dob, "%Y-%m-%d")
     service = datetime.strptime(dos, "%Y-%m-%d")
     age = service.year - birth.year
@@ -180,144 +47,166 @@ def compute_age(dob: str, dos: str) -> int:
         age -= 1
     return age
 
-def add_age_to_records(records: List[Dict]) -> List[Dict]:
-    for rec in records:
-        rec["age"] = compute_age(rec["date_of_birth"], rec["date_of_service"])
-    return records
+def add_age(records: List[Dict]):
+    for r in records:
+        r["age"] = compute_age(r["date_of_birth"], r["date_of_service"])
 
-validation_records = add_age_to_records(validation_records)
-test_records = add_age_to_records(test_records)
+add_age(validation_records)
+add_age(test_records)
 
-# %% [markdown]
-# # 4. Tool Definitions
-
-# %%
-from langchain_core.tools import tool
-
+# ----------------------------------------------------------------------
+# 4. TOOLS (exactly as required)
+# ----------------------------------------------------------------------
 @tool
 def summarize_patient_record(record_str: str) -> str:
-    """Summarize a patient claim record into the exact required structured format."""
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", """You are an expert medical insurance summarizer.
-Use the following reference codes to expand ICD-10 and CPT codes into full descriptions:
-ICD-10 mappings: {icd}
-CPT mappings: {cpt}
-
-Return ONLY the summary in this exact order with clear section headers:
+    """Return structured patient summary with 7 labeled sections."""
+    prompt = f"""
+Create a clear summary with exactly these sections in order (use bullet points):
 
 • Patient Demographics: name, gender, age
-• Insurance Policy ID: <policy_id>
-• Diagnoses and Descriptions: <ICD10 code> - <full description>, ...
-• Procedures and Descriptions: <CPT code> - <full description>, ...
-• Preauthorization Status: <Yes/No/Required but not obtained etc.>
-• Billed Amount (in USD): <amount>
-• Date of Service: <date>
+• Insurance Policy ID
+• Diagnoses and Descriptions: ICD10 codes + descriptions
+• Procedures and Descriptions: CPT codes + descriptions
+• Preauthorization Status
+• Billed Amount (in USD)
+• Date of Service
 
-Use bullet points and be concise."""),
-        ("human", "{record}")
-    ])
-    
-    chain = prompt | llm
-    result = chain.invoke({
-        "record": record_str,
-        "icd": json.dumps({k: v for k, v in reference_codes.items() if k[0].isalpha()}),
-        "cpt": json.dumps({k: v for k, v in reference_codes.items() if k.isdigit()})
-    })
-    return result.content
+Use these mappings:
+ICD-10: {json.dumps(icd10_map)}
+CPT: {json.dumps(cpt_map)}
 
-@tool  
+Patient record:
+{record_str}
+
+Only return the summary.
+"""
+    return llm.invoke(prompt).content
+
+@tool
 def summarize_policy_guideline(policy_id: str) -> str:
-    """Summarize the insurance policy for the given policy_id."""
-    policy = policy_dict.get(policy_id)
+    """Return structured policy summary."""
+    policy = next((p for p in policies if p["policy_id"] == policy_id), None)
     if not policy:
-        return f"Policy {policy_id} not found."
+        return "Policy not found."
     
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", """You are an expert insurance policy summarizer.
-Use the reference codes below to expand CPT and ICD-10 codes.
+    prompt = f"""
+Summarize with these sections:
 
-Return ONLY a structured summary with these sections:
+• Policy Details: policy ID + plan name
+• Covered Procedures (one block per procedure with all sub-bullets)
 
-• Policy Details: <policy_id> - <plan_name>
-• Covered Procedures:
-  - Procedure Code and Description: <CPT> - <description>
-    Covered Diagnoses and Descriptions: <ICD1> - <desc1>, <ICD2> - <desc2>, ...
-    Gender Restriction: <Any/Male/Female>
-    Age Range: <min> to <max> (inclusive min, exclusive max)
-    Preauthorization Requirement: <Yes/No>
-    Notes on Coverage: <notes or None>
+Use descriptions from:
+CPT: {json.dumps(cpt_map)}
+ICD-10: {json.dumps(icd10_map)}
 
-Repeat the block for every covered procedure.
+Policy JSON:
+{json.dumps(policy)}
 
-Reference codes:
-{codes}"""),
-        ("human", "Policy ID: {policy_id}")
-    ])
-    
-    chain = prompt | llm
-    result = chain.invoke({
-        "policy_id": policy_id,
-        "codes": json.dumps(reference_codes)
-    })
-    return result.content
+Return clean markdown only.
+"""
+    return llm.invoke(prompt).content
 
 @tool
 def check_claim_coverage(record_summary: str, policy_summary: str) -> str:
-    """Perform detailed coverage validation and return structured reasoning."""
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", """You are an expert claims adjudicator. 
-Evaluate coverage STRICTLY according to the policy rules.
+    """Final coverage check – returns 3 sections."""
+    prompt = f"""
+You are a senior claims adjudicator.
 
-A claim is APPROVED only if ALL of these are true for the claimed procedure:
-- Procedure code is explicitly listed in the policy
-- At least one diagnosis matches a covered diagnosis for that procedure
-- Patient age is >= min and < max (max is exclusive)
-- Gender matches (Any = no restriction)
-- If preauthorization required → must be obtained
+Patient summary:
+{record_summary}
 
-There is exactly one procedure per claim.
+Policy summary:
+{policy_summary}
 
-Return exactly these three sections:
+Evaluate the ONE procedure. Approve only if ALL criteria met:
+- Diagnosis match
+- Procedure listed
+- Age in range [lower, upper)
+- Gender matches (Any = ok)
+- Preauth required → obtained
 
-• Coverage Review: step-by-step checks with clear pass/fail
-• Summary of Findings: bullet list of what passed and what failed
-• Final Decision: APPROVE or ROUTE FOR REVIEW + one-sentence reason
+Output exactly these three sections:
 
-Do not hallucinate codes or rules."""),
-        ("human", "Patient Summary:\n{record}\n\nPolicy Summary:\n{policy}")
-    ])
-    
-    chain = prompt | llm
-    result = chain.invoke({"record": record_summary, "policy": policy_summary})
-    return result.content
+• Coverage Review: step-by-step checks
+• Summary of Findings
+• Final Decision: APPROVE or ROUTE FOR REVIEW + short reason
+"""
+    return llm.invoke(prompt).content
 
 tools = [summarize_patient_record, summarize_policy_guideline, check_claim_coverage]
+tool_node = ToolNode(tools)
 
-# %% [markdown]
-# # 5. System Prompt (Critical for correct sequence & final format)
+# ----------------------------------------------------------------------
+# 5. MANUAL REACT AGENT (Option 1 – works 100% with your versions)
+# ----------------------------------------------------------------------
+SYSTEM_PROMPT = """
+You are an expert Healthcare Insurance Claim Approval Agent.
+You have exactly three tools. Use them in this exact order EVERY time:
 
-# %%
-system_prompt = """You are a Healthcare Insurance Claim Approval Agent.
-You have exactly three tools:
-1. summarize_patient_record(record_str) - creates structured patient summary
-2. summarize_policy_guideline(policy_id) - creates structured policy summary
-3. check_claim_coverage(record_summary, policy_summary) - performs coverage validation
+1. summarize_patient_record → pass the full patient JSON
+2. summarize_policy_guideline → use policy_id from step 1
+3. check_claim_coverage → pass both summaries
 
-You MUST use the tools in EXACTLY this order:
-1. Call summarize_patient_record with the full patient record (provided as JSON string)
-2. Extract the Insurance Policy ID from its output and call summarize_policy_guideline
-3. Call check_claim_coverage with both summaries
-4. After the third tool returns, produce the FINAL answer.
+After step 3 finishes, output ONLY these two lines:
 
-FINAL OUTPUT FORMAT (exactly like this, no extra text):
+Decision: APPROVE
+Reason: <concise reason with specific policy references>
 
-Decision: APPROVE  
-Reason: <concise, accurate reason referencing specific codes, age, gender, preauth, etc.>
+or
 
-OR
+Decision: ROUTE FOR REVIEW
+Reason: <concise reason quoting the failing rule>
 
-Decision: ROUTE FOR REVIEW  
-Reason: <concise reason why automatic approval is not possible>
+NO extra text, markdown, bullets, or headings outside these two lines.
+"""
 
-Do not add thinking steps after the final answer."""
+def agent_node(state: MessagesState):
+    messages = state["messages"]
+    if not any(isinstance(m, SystemMessage) for m in messages):
+        messages = [SystemMessage(content=SYSTEM_PROMPT)] + messages
+    response = llm.bind_tools(tools).invoke(messages)
+    return {"messages": [response]}
+
+builder = StateGraph(MessagesState)
+builder.add_node("agent", agent_node)
+builder.add_node("tools", tool_node)
+
+builder.add_edge(START, "agent")
+builder.add_conditional_edges("agent", tools_condition)
+builder.add_edge("tools", "agent")
+
+react_agent = builder.compile()
+
+# ----------------------------------------------------------------------
+# 6. RUN ONE RECORD
+# ----------------------------------------------------------------------
+def run_agent_on_record(patient_record: Dict) -> str:
+    record_str = json.dumps(patient_record, indent=2)
+    input_msg = HumanMessage(content=f"Evaluate this claim:\n{record_str}")
+    result = react_agent.invoke({"messages": [input_msg]})
+    final = result["messages"][-1].content.strip()
+    return final
+
+# ----------------------------------------------------------------------
+# 7. VALIDATION (optional – check it works)
+# ----------------------------------------------------------------------
+print("Testing on validation set...")
+for rec in validation_records[:3]:  # just first 3 for speed
+    print(rec["patient_id"])
+    print(run_agent_on_record(rec))
+    print("-" * 50)
+
+# ----------------------------------------------------------------------
+# 8. GENERATE FINAL SUBMISSION.CSV
+# ----------------------------------------------------------------------
+results = []
+for rec in test_records:
+    resp = run_agent_on_record(rec)
+    results.append({"patient_id": rec["patient_id"], "generated_response": resp})
+
+submission_df = pd.DataFrame(results)[["patient_id", "generated_response"]]
+submission_df.to_csv("submission.csv", index=False)
+
+print("\nsubmission.csv created! Contents:")
+print(submission_df)
 
