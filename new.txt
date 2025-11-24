@@ -1,266 +1,214 @@
-Connecting to Azure OpenAI API
-Install the required libraries
-3
-
-%run ./.setup/learner_setup
-
-4
-
-import openaiimport osimport jsonimport httpxfrom dotenv import load_dotenvfrom tenacity import (    retry,    stop_after_attempt,    wait_random_exponential,)
-
-Create model Client
-Below is the code to authenticate and establish the connection to the LLM in UAIS.
-6
-
-# Authentication:def get_access_token():    auth = "https://api.uhg.com/oauth2/token"    scope = "https://api.uhg.com/.default"    grant_type = "client_credentials"    with httpx.Client() as client:        body = {            "grant_type": grant_type,            "scope": scope,            "client_id": dbutils.secrets.get(scope="AIML_Training",             key="client_id"),            "client_secret": dbutils.secrets.get(scope="AIML_Training",             key="client_secret"),        }        headers = {"Content-Type": "application/x-www-form-urlencoded"}        resp = client.post(auth, headers=headers, data=body, timeout=60)        access_token = resp.json()["access_token"]        return access_tokenload_dotenv('./Data/UAIS_vars.env')endpoint = os.environ.get("MODEL_ENDPOINT")model_name = os.environ.get("MODEL_NAME")project_id = os.environ.get("PROJECT_ID")api_version = os.environ.get("API_VERSION")chat_client = openai.AzureOpenAI(        azure_endpoint=endpoint,        api_version=api_version,        azure_deployment=model_name,        azure_ad_token=get_access_token(),        default_headers={            "projectId": project_id        }    )
-
-Create a function to interact with the LLM
-Let us create a generic function to hit the LLM via API and get the responses, so that we can call this function for every task that we need to do. Let us use some of the parameters to set up the LLM. One can configure a few parameters to get different results for the prompts. Tweaking these settings are important to improve reliability and desirability of responses and it takes a bit of experimentation to figure out the proper settings for specific use cases. The parameters used in this code are:
-prompt_messages: The message that has to be passed to LLM as a prompt. This can be in JSON format and one can give multiple roles and content for each role.
-max_tokens: This is the maximum number of tokens the model can generate in a single response. The default value for GPT 4 is 4096. As we are using gpt-4o model, we will use this default value.
-temperature: The value of this parameter ranges from 0 to 2. Lower the temperature, the more deterministic the results in the sense that the highest probable next token is always picked. Increasing temperature could lead to more randomness, which encourages more diverse or creative outputs.
-top_p: The value of this parameter ranges from 0 to 1. If you are looking for exact and factual answers keep this low. If you are looking for more diverse responses, increase to a higher value.
-# We use an exponential backoff decorator in the event too # many users are using the model at once and rate limit is reached@retry(wait=wait_random_exponential(min=45, max=120), stop=stop_after_attempt(6))def query_llm(prompt_messages, max_tokens=4096, temperature=1.0, top_p=1.0):        response = chat_client.chat.completions.create(        messages=prompt_messages,        max_tokens=max_tokens,        temperature=temperature,        top_p=top_p,        model=model_name    )    return {'text': response.choices[0].message.content}
-
-Simple Query to LLM
-Let us test the connection by writing a simple query. When we write query message, it can be of a different role, which influences how the model may interpret the input. Following are the various roles:
-user: When user role is used, the message is treated as a request. It is similar to messages you would type in ChatGPT as an end user.
-developer: When developer role is used, the instructions given are prioritized ahead of user messages, following a chain of command. This role is going to instruct the model how it should behave and how it should respond to an end user. Older versions of LLMs had system as a role for the same purpose.
-assistant: assistant is for messages the model generated earlier. It can also be used to provide examples to the model for how it should respond to the current request.
-query = "List top 5 commonly used classification models used in machine learning"prompt_messages = [    {"role": "user", "content": query}]response = query_llm(prompt_messages)print(response['text'])
-
-Comments on model output:
-The user query to list 5 commonly used classification models in ML, is passed to LLM and LLM responds with 5 models.
-Please note that output of LLM is always non-deterministic, and the above output may vary for each execution. Also, if there is a change in LLM model (like gpt-4o-mini, gpt-3.5-turbo etc.), then there will be a variation in output display format as well.
-Prompt examples
-Example 1: Extract Keywords
-sample_text = """Reasoned about discharge summary sample for 11 secondsPatient admitted with community-acquired pneumonia received IV antibiotics with marked clinical improvement.Fever resolved and oxygenation normalized over a 5-day hospital stay.Discharge medications include oral azithromycin and supportive care instructions.Follow-up is scheduled in 1 week to reassess recovery."""prompt_messages=[        {"role": "developer", "content": "You will be provided with a         patient discharge summary, and your task is to extract keywords         from it"},        {"role": "user", "content": f"Extract keywords from this patient         discharge summary:{sample_text}"},      ]response = query_llm(prompt_messages)print(response['text'])
-
-Comments on model output:
-Based on the sample_text provided, the LLM could extract the keywords.
-The model was informed through developer role exactly what it should do and how it should behave.
-Note that, the keywords generated here may be displayed in a different order, when you run it. Also, if you use a different LLM model, then the outcome can be entirely different.
-Example 2: Parse the text and convert to structured output
-sample_text = """After reviewing the applicant’s recent medical records, lab results, and physician reports, the risk assessment indicates a low-risk profile with no significant pre-existing conditions. Standard coverage with typical premium rates is recommended. Final approval is contingent upon adherence to annual health monitoring requirements."""prompt_messages = [        {"role": "developer", "content": "You will be provided with         unstructured data, and your task is to parse it into proper JSON         format."},        {"role": "user", "content": f"Under-writing text:{sample_text}        "},            ]response = query_llm(prompt_messages)print(response['text'])
-
-Comments on model output:
-Observe that, the developer role has instructed the model to parse the data and provide the information in JSON format.
-This indicates that the model can behave like a programmer who understands the JSON format and can convert the unstructured data into JSON format.
-Note that, the exact JSON format may be displayed in a different manner, when you run it. Also, if you use a different LLM model, then the outcome can be entirely different.
-
 # =============================================================================
-# CAPSTONE 2 – Healthcare Insurance Claim Approval Agent
-# FULLY WORKING – Manual ReAct Agent (Option 1) – 100% compatible Nov 2025
+# CAPSTONE 2 – FULLY WORKING IN UHG DATABRICKS (UAIS Azure OpenAI)
+# Manual ReAct Agent – Option 1 – Uses your exact course connection
 # =============================================================================
-
-
-
 
 import json
-import os
 from datetime import datetime
 from typing import List, Dict, Any
 import pandas as pd
-
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
-from langchain.tools import tool
-from langgraph.graph import StateGraph, MessagesState, START, END
-from langgraph.prebuilt import ToolNode, tools_condition
+import httpx
+from tenacity import retry, stop_after_attempt, wait_random_exponential
 
 # ----------------------------------------------------------------------
-# 1. LLM SETUP
+# 1. AUTHENTICATION – EXACTLY AS IN YOUR COURSE
 # ----------------------------------------------------------------------
-os.environ["OPENAI_API_KEY"] = "9b5ad71b2ce5302211f9c61530b329a4922fc6a4"
+def get_access_token():
+    auth = "https://api.uhg.com/oauth2/token"
+    scope = "https://api.uhg.com/.default"
+    grant_type = "client_credentials"
+    with httpx.Client() as client:
+        body = {
+            "grant_type": grant_type,
+            "scope": scope,
+            "client_id": dbutils.secrets.get(scope="AIML_Training", key="client_id"),
+            "client_secret": dbutils.secrets.get(scope="AIML_Training", key="client_secret"),
+        }
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        resp = client.post(auth, headers=headers, data=body, timeout=60)
+        return resp.json()["access_token"]
 
-llm = ChatOpenAI(
-    model="gpt-4o-mini",
-    temperature=0
+# Load environment variables from UAIS_vars.env (as in course)
+from dotenv import load_dotenv
+load_dotenv('./Data/UAIS_vars.env')
+
+endpoint = os.environ.get("MODEL_ENDPOINT")
+model_name = os.environ.get("MODEL_NAME")
+project_id = os.environ.get("PROJECT_ID")
+api_version = os.environ.get("API_VERSION")
+
+# Official client from course
+import openai
+chat_client = openai.AzureOpenAI(
+    azure_endpoint=endpoint,
+    api_version=api_version,
+    azure_deployment=model_name,
+    azure_ad_token=get_access_token(),
+    default_headers={"projectId": project_id}
 )
 
+# ----------------------------------------------------------------------
+# 2. LLM CALL FUNCTION – EXACTLY AS IN COURSE
+# ----------------------------------------------------------------------
+@retry(wait=wait_random_exponential(min=45, max=120), stop=stop_after_attempt(6))
+def query_llm(prompt_messages, max_tokens=4096, temperature=0.0, top_p=1.0):
+    response = chat_client.chat.completions.create(
+        messages=prompt_messages,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        top_p=top_p,
+        model=model_name
+    )
+    return response.choices[0].message.content
+
+# ----------------------------------------------------------------------
+# 3. LOAD DATA
+# ----------------------------------------------------------------------
+import json
 with open("./Data/reference_codes.json") as f:
-    reference_codes = json.load(f)
+    ref = json.load(f)
+    icd10_map = ref.get("icd10", {})
+    cpt_map = ref.get("cpt", {})
 
 with open("./Data/insurance_policies.json") as f:
-    policies_raw = json.load(f)
-    policy_dict = {p["policy_id"]: p for p in policies_raw}
+    policies = json.load(f)
+    policy_dict = {p["policy_id"]: p for p in policies}
 
 with open("./Data/validation_records.json") as f:
     validation_records = json.load(f)
 
 with open("./Data/test_records.json") as f:
     test_records = json.load(f)
+
 # ----------------------------------------------------------------------
-# 3. ACCURATE AGE CALCULATION (Python – no LLM math errors)
+# 4. AGE CALCULATION
 # ----------------------------------------------------------------------
 def compute_age(dob: str, dos: str) -> int:
-    birth = datetime.strptime(dob, "%Y-%m-%d")
-    service = datetime.strptime(dos, "%Y-%m-%d")
-    age = service.year - birth.year
-    if (service.month, service.day) < (birth.month, birth.day):
+    b = datetime.strptime(dob, "%Y-%m-%d")
+    s = datetime.strptime(dos, "%Y-%m-%d")
+    age = s.year - b.year
+    if (s.month, s.day) < (b.month, b.day):
         age -= 1
     return age
 
-def add_age(records: List[Dict]):
-    for r in records:
+for recs in [validation_records, test_records]:
+    for r in recs:
         r["age"] = compute_age(r["date_of_birth"], r["date_of_service"])
 
-add_age(validation_records)
-add_age(test_records)
-
 # ----------------------------------------------------------------------
-# 4. TOOLS (exactly as required)
+# 5. TOOLS (using raw query_llm)
 # ----------------------------------------------------------------------
-@tool
 def summarize_patient_record(record_str: str) -> str:
-    """Return structured patient summary with 7 labeled sections."""
-    prompt = f"""
-Create a clear summary with exactly these sections in order (use bullet points):
-
-• Patient Demographics: name, gender, age
-• Insurance Policy ID
-• Diagnoses and Descriptions: ICD10 codes + descriptions
-• Procedures and Descriptions: CPT codes + descriptions
-• Preauthorization Status
-• Billed Amount (in USD)
-• Date of Service
-
-Use these mappings:
+    messages = [
+        {"role": "developer", "content": """You are an expert medical claims processor. 
+         Create a structured summary with exactly these 7 sections in order:
+         • Patient Demographics (name, gender, age)
+         • Insurance Policy ID
+         • Diagnoses and Descriptions
+         • Procedures and Descriptions
+         • Preauthorization Status
+         • Billed Amount (in USD)
+         • Date of Service
+         Use the ICD-10 and CPT descriptions provided."""},
+        {"role": "user", "content": f"""Mappings:
 ICD-10: {json.dumps(icd10_map)}
 CPT: {json.dumps(cpt_map)}
 
 Patient record:
 {record_str}
 
-Only return the summary.
-"""
-    return llm.invoke(prompt).content
+Return only the summary."""}
+    ]
+    return query_llm(messages, temperature=0)
 
-@tool
 def summarize_policy_guideline(policy_id: str) -> str:
-    """Return structured policy summary."""
-    policy = next((p for p in policies if p["policy_id"] == policy_id), None)
+    policy = policy_dict.get(policy_id)
     if not policy:
         return "Policy not found."
     
-    prompt = f"""
-Summarize with these sections:
-
-• Policy Details: policy ID + plan name
-• Covered Procedures (one block per procedure with all sub-bullets)
-
-Use descriptions from:
+    messages = [
+        {"role": "developer", "content": """Summarize the insurance policy with:
+         • Policy Details
+         • Covered Procedures (each with: code, description, diagnoses, gender, age range, preauth, notes)
+         Use human-readable CPT/ICD descriptions."""},
+        {"role": "user", "content": f"""Mappings:
 CPT: {json.dumps(cpt_map)}
 ICD-10: {json.dumps(icd10_map)}
 
-Policy JSON:
-{json.dumps(policy)}
+Policy:
+{json.dumps(policy)}"""}
+    ]
+    return query_llm(messages, temperature=0)
 
-Return clean markdown only.
-"""
-    return llm.invoke(prompt).content
-
-@tool
 def check_claim_coverage(record_summary: str, policy_summary: str) -> str:
-    """Final coverage check – returns 3 sections."""
-    prompt = f"""
-You are a senior claims adjudicator.
-
-Patient summary:
+    messages = [
+        {"role": "developer", "content": """You are a senior claims adjudicator.
+         Approve only if ALL criteria are met:
+         - Diagnosis matches
+         - Procedure listed
+         - Age in range [lower, upper)
+         - Gender matches
+         - Preauth required → obtained
+         Output exactly 3 sections:
+         • Coverage Review (step-by-step)
+         • Summary of Findings
+         • Final Decision: APPROVE or ROUTE FOR REVIEW + short reason"""},
+        {"role": "user", "content": f"""Patient:
 {record_summary}
 
-Policy summary:
-{policy_summary}
-
-Evaluate the ONE procedure. Approve only if ALL criteria met:
-- Diagnosis match
-- Procedure listed
-- Age in range [lower, upper)
-- Gender matches (Any = ok)
-- Preauth required → obtained
-
-Output exactly these three sections:
-
-• Coverage Review: step-by-step checks
-• Summary of Findings
-• Final Decision: APPROVE or ROUTE FOR REVIEW + short reason
-"""
-    return llm.invoke(prompt).content
-
-tools = [summarize_patient_record, summarize_policy_guideline, check_claim_coverage]
-tool_node = ToolNode(tools)
+Policy:
+{policy_summary}"""}
+    ]
+    return query_llm(messages, temperature=0)
 
 # ----------------------------------------------------------------------
-# 5. MANUAL REACT AGENT (Option 1 – works 100% with your versions)
+# 6. MANUAL REACT AGENT (simplified state machine)
 # ----------------------------------------------------------------------
-SYSTEM_PROMPT = """
-You are an expert Healthcare Insurance Claim Approval Agent.
-You have exactly three tools. Use them in this exact order EVERY time:
-
-1. summarize_patient_record → pass the full patient JSON
-2. summarize_policy_guideline → use policy_id from step 1
-3. check_claim_coverage → pass both summaries
-
-After step 3 finishes, output ONLY these two lines:
-
+def run_agent_on_record(rec: Dict) -> str:
+    record_str = json.dumps(rec, indent=2)
+    
+    # Step 1
+    patient_summary = summarize_patient_record(record_str)
+    
+    # Extract policy_id
+    import re
+    policy_match = re.search(r"Insurance Policy ID[:\s]+([A-Z0-9]+)", patient_summary)
+    policy_id = policy_match.group(1) if policy_match else rec["insurance_policy_id"]
+    
+    # Step 2
+    policy_summary = summarize_policy_guideline(policy_id)
+    
+    # Step 3
+    coverage_result = check_claim_coverage(patient_summary, policy_summary)
+    
+    # Final decision
+    messages = [
+        {"role": "developer", "content": """After coverage review, output ONLY these two lines:
 Decision: APPROVE
-Reason: <concise reason with specific policy references>
+Reason: <concise reason>
 
 or
 
 Decision: ROUTE FOR REVIEW
-Reason: <concise reason quoting the failing rule>
+Reason: <concise reason>
 
-NO extra text, markdown, bullets, or headings outside these two lines.
-"""
-
-def agent_node(state: MessagesState):
-    messages = state["messages"]
-    if not any(isinstance(m, SystemMessage) for m in messages):
-        messages = [SystemMessage(content=SYSTEM_PROMPT)] + messages
-    response = llm.bind_tools(tools).invoke(messages)
-    return {"messages": [response]}
-
-builder = StateGraph(MessagesState)
-builder.add_node("agent", agent_node)
-builder.add_node("tools", tool_node)
-
-builder.add_edge(START, "agent")
-builder.add_conditional_edges("agent", tools_condition)
-builder.add_edge("tools", "agent")
-
-react_agent = builder.compile()
+No extra text."""},
+        {"role": "user", "content": coverage_result}
+    ]
+    final = query_llm(messages, temperature=0)
+    return final.strip()
 
 # ----------------------------------------------------------------------
-# 6. RUN ONE RECORD
-# ----------------------------------------------------------------------
-def run_agent_on_record(patient_record: Dict) -> str:
-    record_str = json.dumps(patient_record, indent=2)
-    input_msg = HumanMessage(content=f"Evaluate this claim:\n{record_str}")
-    result = react_agent.invoke({"messages": [input_msg]})
-    final = result["messages"][-1].content.strip()
-    return final
-
-# ----------------------------------------------------------------------
-# 7. VALIDATION (optional – check it works)
-# ----------------------------------------------------------------------
-print("Testing on validation set...")
-for rec in validation_records[:3]:  # just first 3 for speed
-    print(rec["patient_id"])
-    print(run_agent_on_record(rec))
-    print("-" * 50)
-
-# ----------------------------------------------------------------------
-# 8. GENERATE FINAL SUBMISSION.CSV
+# 7. GENERATE SUBMISSION.CSV
 # ----------------------------------------------------------------------
 results = []
 for rec in test_records:
+    print(f"Processing {rec['patient_id']}...")
     resp = run_agent_on_record(rec)
     results.append({"patient_id": rec["patient_id"], "generated_response": resp})
 
 submission_df = pd.DataFrame(results)[["patient_id", "generated_response"]]
 submission_df.to_csv("submission.csv", index=False)
 
-print("\nsubmission.csv created! Contents:")
-print(submission_df)
-
+print("\nsubmission.csv created successfully!")
+display(submission_df)
