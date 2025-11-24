@@ -1,9 +1,31 @@
+Your code fails because Databricks clusters on Azure do not have outbound internet access by default, so you cannot reach the OpenAI API endpoint. You should use Azure OpenAI instead, which is accessible from within Azure Databricks if your workspace is configured for it.
+
+Below is the fix: switch from ChatOpenAI to AzureChatOpenAI and set the required Azure environment variables. Also, never hardcode API keys; use Databricks secrets or environment variables.
+
+%pythonimport osfrom langchain_openai import AzureChatOpenAI# Set these as Databricks secrets or environment variables, not in code!os.environ["AZURE_OPENAI_API_KEY"] = "<your-azure-openai-key>"os.environ["AZURE_OPENAI_ENDPOINT"] = "<your-azure-openai-endpoint>"  # e.g. https://<your-resource>.openai.azure.com/os.environ["AZURE_OPENAI_DEPLOYMENT_NAME"] = "<your-deployment-name>"llm = AzureChatOpenAI(    deployment_name=os.environ    ["AZURE_OPENAI_DEPLOYMENT_NA    ME"],    openai_api_key=os.environ    ["AZURE_OPENAI_API_KEY"],    openai_api_base=os.environ    ["AZURE_OPENAI_ENDPOINT"],    openai_api_version="2023-05-    15",  # or your API version    temperature=0)
+
+Replace your current llm = ChatOpenAI(...) line with the above. The rest of your code can remain unchanged.
+
+This change allows your code to use Azure OpenAI, which is accessible from within Azure Databricks if your workspace is configured for it. Please ensure you have provisioned an Azure OpenAI resource and deployment, and use Databricks secrets for sensitive values.
+
+
+APIConnectionError: Connection error.
+File /databricks/python/lib/python3.12/site-packages/httpcore/_exceptions.py:10, in map_exceptions(map)
+      9 try:
+---> 10     yield
+     11 except Exception as exc:  # noqa: PIE786
+APIConnectionError: Connection error.
+
 # =============================================================================
 # CAPSTONE 2 – Healthcare Insurance Claim Approval Agent
 # FULLY WORKING – Manual ReAct Agent (Option 1) – 100% compatible Nov 2025
 # =============================================================================
 
+
+
+
 import json
+import os
 from datetime import datetime
 from typing import List, Dict, Any
 import pandas as pd
@@ -17,25 +39,25 @@ from langgraph.prebuilt import ToolNode, tools_condition
 # ----------------------------------------------------------------------
 # 1. LLM SETUP
 # ----------------------------------------------------------------------
-llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)  # or gpt-4.1-mini
+os.environ["OPENAI_API_KEY"] = "9b5ad71b2ce5302211f9c61530b329a4922fc6a4"
 
-# ----------------------------------------------------------------------
-# 2. LOAD ALL DATA
-# ----------------------------------------------------------------------
-with open("insurance_policies.json", "r") as f:
-    policies = json.load(f)
+llm = ChatOpenAI(
+    model="gpt-4o-mini",
+    temperature=0
+)
 
-with open("reference_codes.json", "r") as f:
-    ref_codes = json.load(f)
-    icd10_map = ref_codes.get("icd10", {})
-    cpt_map = ref_codes.get("cpt", {})
+with open("./Data/reference_codes.json") as f:
+    reference_codes = json.load(f)
 
-with open("validation_records.json", "r") as f:
+with open("./Data/insurance_policies.json") as f:
+    policies_raw = json.load(f)
+    policy_dict = {p["policy_id"]: p for p in policies_raw}
+
+with open("./Data/validation_records.json") as f:
     validation_records = json.load(f)
 
-with open("test_records.json", "r") as f:
+with open("./Data/test_records.json") as f:
     test_records = json.load(f)
-
 # ----------------------------------------------------------------------
 # 3. ACCURATE AGE CALCULATION (Python – no LLM math errors)
 # ----------------------------------------------------------------------
