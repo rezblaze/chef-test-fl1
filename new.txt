@@ -1,214 +1,484 @@
-# =============================================================================
-# CAPSTONE 2 – FULLY WORKING IN UHG DATABRICKS (UAIS Azure OpenAI)
-# Manual ReAct Agent – Option 1 – Uses your exact course connection
-# =============================================================================
+Capstone 2 - Project Submission Guide Video
 
-import json
-from datetime import datetime
-from typing import List, Dict, Any
-import pandas as pd
-import httpx
-from tenacity import retry, stop_after_attempt, wait_random_exponential
+0:12
+Hi everyone, this video will help you understand what are some of the key sections you can put in your solution notebook for Capstone 2, How do you create a standard submission CSV file?
 
-# ----------------------------------------------------------------------
-# 1. AUTHENTICATION – EXACTLY AS IN YOUR COURSE
-# ----------------------------------------------------------------------
-def get_access_token():
-    auth = "https://api.uhg.com/oauth2/token"
-    scope = "https://api.uhg.com/.default"
-    grant_type = "client_credentials"
-    with httpx.Client() as client:
-        body = {
-            "grant_type": grant_type,
-            "scope": scope,
-            "client_id": dbutils.secrets.get(scope="AIML_Training", key="client_id"),
-            "client_secret": dbutils.secrets.get(scope="AIML_Training", key="client_secret"),
-        }
-        headers = {"Content-Type": "application/x-www-form-urlencoded"}
-        resp = client.post(auth, headers=headers, data=body, timeout=60)
-        return resp.json()["access_token"]
+0:23
+And what are some of the top challenges faced by learners when submitting this capstone project?
 
-# Load environment variables from UAIS_vars.env (as in course)
-from dotenv import load_dotenv
-load_dotenv('./Data/UAIS_vars.env')
+0:28
+Now, the first thing to keep in mind is when you're in your capstone environment, make sure that your solution notebook file is named as code.
 
-endpoint = os.environ.get("MODEL_ENDPOINT")
-model_name = os.environ.get("MODEL_NAME")
-project_id = os.environ.get("PROJECT_ID")
-api_version = os.environ.get("API_VERSION")
+0:36
+Now coming to the notebook itself, this is a recommended way of structuring your solution notebook, but you're free to implement it in your own way.
 
-# Official client from course
-import openai
-chat_client = openai.AzureOpenAI(
-    azure_endpoint=endpoint,
-    api_version=api_version,
-    azure_deployment=model_name,
-    azure_ad_token=get_access_token(),
-    default_headers={"projectId": project_id}
-)
+0:46
+In terms of the key sections, make sure that you load up the necessary libraries and do your environment setup in terms of configuring your Azure Open AI client.
 
-# ----------------------------------------------------------------------
-# 2. LLM CALL FUNCTION – EXACTLY AS IN COURSE
-# ----------------------------------------------------------------------
-@retry(wait=wait_random_exponential(min=45, max=120), stop=stop_after_attempt(6))
-def query_llm(prompt_messages, max_tokens=4096, temperature=0.0, top_p=1.0):
-    response = chat_client.chat.completions.create(
-        messages=prompt_messages,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        top_p=top_p,
-        model=model_name
-    )
-    return response.choices[0].message.content
+0:55
+In terms of data loading and preprocessing, the first step for you would be to load up your validation records.
 
-# ----------------------------------------------------------------------
-# 3. LOAD DATA
-# ----------------------------------------------------------------------
-import json
-with open("./Data/reference_codes.json") as f:
-    ref = json.load(f)
-    icd10_map = ref.get("icd10", {})
-    cpt_map = ref.get("cpt", {})
+1:02
+A simple way is to use the Jason library and load it as a list of dictionaries as you can see here where every patient record is a dictionary.
+#Load from files - Just for internal testing 
+with open('Data/validation_records.json') as f:
+sample_patients - json.load(f)
+#looking at sample patient records 
+sample_patients(0:2]
 
-with open("./Data/insurance_policies.json") as f:
-    policies = json.load(f)
-    policy_dict = {p["policy_id"]: p for p in policies}
 
-with open("./Data/validation_records.json") as f:
-    validation_records = json.load(f)
+1:11
+The next step would be to implement a utility function for computing the age of the patient.
 
-with open("./Data/test_records.json") as f:
-    test_records = json.load(f)
+1:16
+Feel free to refer to the learner instruction document in terms of various ways in which you can do this.
 
-# ----------------------------------------------------------------------
-# 4. AGE CALCULATION
-# ----------------------------------------------------------------------
-def compute_age(dob: str, dos: str) -> int:
-    b = datetime.strptime(dob, "%Y-%m-%d")
-    s = datetime.strptime(dos, "%Y-%m-%d")
-    age = s.year - b.year
-    if (s.month, s.day) < (b.month, b.day):
-        age -= 1
-    return age
+1:22
+A simple way is to create a compute age function.
 
-for recs in [validation_records, test_records]:
-    for r in recs:
-        r["age"] = compute_age(r["date_of_birth"], r["date_of_service"])
+1:25
+Take in the patient date of birth, the reference date which is the date of service mentioned in the patient document and then leverage that in your Python function to compute the age.
+def compute_age(dob: str, reference_date: str) -> int: ...
+#implenent your own logic
+#Example usage
+age - conpute_age("1975-08-22", "2025-05-01")
+print ("Age:", age)
 
-# ----------------------------------------------------------------------
-# 5. TOOLS (using raw query_llm)
-# ----------------------------------------------------------------------
-def summarize_patient_record(record_str: str) -> str:
-    messages = [
-        {"role": "developer", "content": """You are an expert medical claims processor. 
-         Create a structured summary with exactly these 7 sections in order:
-         • Patient Demographics (name, gender, age)
-         • Insurance Policy ID
-         • Diagnoses and Descriptions
-         • Procedures and Descriptions
-         • Preauthorization Status
-         • Billed Amount (in USD)
-         • Date of Service
-         Use the ICD-10 and CPT descriptions provided."""},
-        {"role": "user", "content": f"""Mappings:
-ICD-10: {json.dumps(icd10_map)}
-CPT: {json.dumps(cpt_map)}
 
-Patient record:
-{record_str}
+1:36
+You're free to use LLM based reasoning also to compute age of each patient.
 
-Return only the summary."""}
-    ]
-    return query_llm(messages, temperature=0)
+1:41
+Now make sure to call this function and add in the age for each patient.
 
-def summarize_policy_guideline(policy_id: str) -> str:
-    policy = policy_dict.get(policy_id)
-    if not policy:
-        return "Policy not found."
-    
-    messages = [
-        {"role": "developer", "content": """Summarize the insurance policy with:
-         • Policy Details
-         • Covered Procedures (each with: code, description, diagnoses, gender, age range, preauth, notes)
-         Use human-readable CPT/ICD descriptions."""},
-        {"role": "user", "content": f"""Mappings:
-CPT: {json.dumps(cpt_map)}
-ICD-10: {json.dumps(icd10_map)}
+1:45
+One way is to do it manually yourself or you can even do it in your own custom LLM based implementations.
 
-Policy:
-{json.dumps(policy)}"""}
-    ]
-    return query_llm(messages, temperature=0)
+1:51
+In this case, each sample patient record from a validation data looks like this with a dictionary with key value pairs and now the age is also present.
+for record in sample patients:
+record["age"] * compute_age(record['date_of_birth'), record['date_of_service'))
+#looking at sample patient records 
+sample_patients[0:2]
 
-def check_claim_coverage(record_summary: str, policy_summary: str) -> str:
-    messages = [
-        {"role": "developer", "content": """You are a senior claims adjudicator.
-         Approve only if ALL criteria are met:
-         - Diagnosis matches
-         - Procedure listed
-         - Age in range [lower, upper)
-         - Gender matches
-         - Preauth required → obtained
-         Output exactly 3 sections:
-         • Coverage Review (step-by-step)
-         • Summary of Findings
-         • Final Decision: APPROVE or ROUTE FOR REVIEW + short reason"""},
-        {"role": "user", "content": f"""Patient:
-{record_summary}
+2:01
+Then you can load up and inspect the insurance policy data which is available in the insurance policies dot Jason file.
 
-Policy:
-{policy_summary}"""}
-    ]
-    return query_llm(messages, temperature=0)
+2:07
+So we load it up also as a list of dictionaries with all the relevant details per policy plan.
+# Load from files
+with open("Data/insurance_policies.json") as f:
+    insurance_policies - json.load(f)
 
-# ----------------------------------------------------------------------
-# 6. MANUAL REACT AGENT (simplified state machine)
-# ----------------------------------------------------------------------
-def run_agent_on_record(rec: Dict) -> str:
-    record_str = json.dumps(rec, indent=2)
-    
-    # Step 1
-    patient_summary = summarize_patient_record(record_str)
-    
-    # Extract policy_id
-    import re
-    policy_match = re.search(r"Insurance Policy ID[:\s]+([A-Z0-9]+)", patient_summary)
-    policy_id = policy_match.group(1) if policy_match else rec["insurance_policy_id"]
-    
-    # Step 2
-    policy_summary = summarize_policy_guideline(policy_id)
-    
-    # Step 3
-    coverage_result = check_claim_coverage(patient_summary, policy_summary)
-    
-    # Final decision
-    messages = [
-        {"role": "developer", "content": """After coverage review, output ONLY these two lines:
-Decision: APPROVE
-Reason: <concise reason>
+#looking at sample insurance policy records 
+insurance_policies(0:2]
 
-or
+2:14
+Next, we load and inspect the reference code data files which consists of the I, CD10, and the CPD codes.
+# Load CPT and It 12 code mapping: fron the reference file
+with open('Data/reference_codes.json') as f
+CPT_CODES = ref['CPT']
+ICD10_CODES = ref['ICD10']
+#Look at CPT Codes
+CPT_COOES
+ICD10_CODES
 
-Decision: ROUTE FOR REVIEW
-Reason: <concise reason>
+2:22
+We would use these in our tools when we implement them to add additional reasoning to expand out these codes whenever any kind of reasoning or explanation is being generated.
+PATIENT_DB = {p["patient_id"]: p for p in sample_patients}
+POLICY_DB = {p["policy_id"]: p for p in insurance_polícies}
 
-No extra text."""},
-        {"role": "user", "content": coverage_result}
-    ]
-    final = query_llm(messages, temperature=0)
-    return final.strip()
+2:33
+The next step for you would be to create and define the three tools for the React agent as is explained in detail in the Learner Instruction document.
 
-# ----------------------------------------------------------------------
-# 7. GENERATE SUBMISSION.CSV
-# ----------------------------------------------------------------------
+2:43
+The first tool would be the Summarize Patient Record tool which would take in the string representation of a patient document and based on that it would generate A detailed summary report.
+@tool
+def summarize_patient_recordt(record_str:str) -> str ...
+
+2:55
+So you can define the function like this for the tool.
+
+2:58
+And then when you call it based on your logic on a patient record, it would end up giving you a detailed summary which looks something like this and it would be just markdown text which gives the details summary of the patient creating a nice descriptive summary from the patient record dictionary.
+PATIENT_DB['P011']
+
+3:17
+Next you would define the tool for summarizing insurance policy guidelines.
+
+3:22
+So you can create a function def summarize policy guideline which will take in a policy ID, refer to your overall list of policy IDs, extract the relevant policy ID, use LLM based reasoning and then generate a details summary description.
+@tool
+def sunnarize_policy_guideline(policy_id: str) -> str: ...
+
+3:38
+So assuming you have done the correct implementation, if you were to have a policy, for example policy with ID 1002, if you were to pass this ID into this tool, you would get a detailed markdown summary which looks something like this, a nice detailed description of the policy.
+POLICY_DB['POL1002']
+policy_summary = summarize_policy_guildeline.invoke("POL1002")
+display((Markdown(policy_summary))
+
+3:58
+The next tool would be to define the tool for claim coverage check.
+
+4:02
+So you can define the function define check claim coverage which would take in the patient record summary and the policy summary which would be generated from the previous two tools.
+
+4:11
+And then it would generate a detailed reasoning in terms of a step by step coverage analysis and recommendation.
+
+4:19
+So assuming you pass in the summaries into this tool, you would get a detailed output like this, which consists of all the procedures which have been recommended for the patient and the coverage criteria in terms of whether specific criteria has passed or failed, and the overall decision.
+@tool
+def check_claim_coverage(patient_record_summary: str, policy_summary: str) > str: ...
+
+result = check_claim_coverage.invoke(
+    {
+    "patient_record_summary": patient_summary,
+    "policy_summary": policy_summary
+    }
+display(Markdowm(result))
+
+4:38
+Once you've defined all the tools, you can put them together in a list, set up your system instruction prompt which would give a detailed response in exactly the format which is mentioned in the learner instruction document, which would need the decision and the reasoning.
+SYSTEM_PROMPT = *** Insurance Claims Reviewer Assistant - STRICT COMPLIANCE REQU ...
+
+4:52
+And then you can connect all of the elements together in your Landgraf React agent and then define a utility function which would call this agent with a input prompt which would consist of the patient record.
+
+5:06
+And then you can start testing the agent on the validation patient data.
+# Utility function to call the agent and get agent response def call_agent (agent ...
+
+5:09
+For example, if we have one patient ID here, as you can see, this is the entire patient record for the IDP 011.
+PATIENT_DB['P011']
+
+5:16
+You would just convert this record from a dictionary in a simple Python string, plug it into a prompt saying, evaluate this claim, pass in the record and then call your agent.
+# run in for a single patient
+patient_record = str(PATIENT_DB["P011"]) # converting dict to string.
+response = call_agent(agent=agent,
+                      query="Evaluate this claim: {patient_record}",
+                      verbose-False)
+response
+
+5:28
+And after some processing, assuming you have done the correct implementation, your agent would return a text response which looks like this.
+
+5:35
+If you were to print this you would see a nice bullet point decision and reasoning.
+print(response)
+
+5:41
+Remember this is all a part of the same text and if you did a markdown formatting you would be able to see a nice bullet list.
+display(Markdown(response))
+
+5:48
+With the final decision and the detailed reasoning.
+
+5:52
+Your agents output should look something very similar to this.
+
+5:56
+Now you can run it on all the validation patient records which would take some time and after all the processing.
+PATIENT_DB.keys()
+
+agent_responses = []
+for key in PATIENT_DB.keys():
+    print (f'processing Patient ID: {key}')
+    patient_record = str(PATIENT_DB[key])
+    response = call_agent(agent,
+                        f'Evaluate this claim: {patient_record}", 
+                        verbose=False)
+agent_responses.append(response)
+
+
+6:03
+Next is how can you validate this performance using the validation human reference data.
+validation_agent_results = pd.Dataframe({"patient_id": list(PATIENT_DB.keys()),
+                                          "generated_response": agent_responses})
+
+
+6:08
+Now remember we have provided this data to you.
+
+6:11
+It is available in validation reference results dot CSV.
+validation_human_results = pd.read_csv("Data/validation_reference_results.csv")
+
+6:15
+So first step create a data frame with the patient ID and the generated response for each of these validation patients.
+
+6:23
+Once you have this data frame, load up the validation reference results which has the human reference response for each patient ID in this data frame.
+
+6:32
+And then you can just merge the two data frames together so that for each validation patient ID you have the agent generated response and the human reference response.
+pd.set_option("display.max_colwidth", None)
+validation_merged_df = validation_agent_results.merge(validation_human_results, on="patient_id', how="inner")
+validation_merged_df
+
+6:42
+And you can just go through them and do a quick manual validation that OK, the agent decision is approved and the human has also approved this decision.
+
+6:50
+Similarly, next one is route for review.
+
+6:53
+And here the human has also mentioned that it needs to be routed for manual review.
+
+6:58
+So in this way, you can check each of them manually or you can use LLM as a judge where you create your own detailed prompt and validate the agent.
+
+7:07
+So here's an example of a detailed prompt.
+* Grading prompt template
+grading_prompt_template = PromptTemplate.from_template("""
+You are an expert insurance claims adjudicator.
+Your task is to evaluate whether the Al-generated response natches the human reference response for the same claim.
+**Grading Rules:**
+›- Grade as "Correct" if the generated response natches the reference cesponse in:-
+- The wording of the reason may differ, but as long as the core rationale renains consistent (e.g., policy coverage mismatch, age/ gender requiresents, diagnosis not aligning), the response can still be graded as "Correct.
+›- Grade as "Incorrect" if the generated response:
+Respond in JS0N format:
+{{
+"grade": "Correct" or "Incorrect,
+"Justification": "Brief Justification here."
+}}
+
+Reference response:
+{reference}
+
+Generated response"
+{generated}
+""")
+
+
+
+7:10
+And again, I'm not showing you the entire prompt, but you would need to build this.
+
+7:14
+You can reuse some of these instructions also to build your prompt.
+
+7:17
+So here I mentioned that the agent response is going to be present and we will also supply the human reference response.
+
+7:26
+And the idea of using an LLM as a judge is to clearly grade the agent generated response as correct if it matches the reference response and you can give based on detailed conditions.
+
+7:39
+Similarly, when should it grade it as incorrect?
+
+7:42
+Basically, if the agent generated response does not match the reference response and then I say the LLM, it should output the grade as correct or incorrect and the justification.
+
+7:52
+And then for every row in this validation data frame, which has the agent generated response and the human reference response, we pass it into our LLM client with the prompt.
 results = []
-for rec in test_records:
-    print(f"Processing {rec['patient_id']}...")
-    resp = run_agent_on_record(rec)
-    results.append({"patient_id": rec["patient_id"], "generated_response": resp})
+for idx, row in validation_merged_df.iterrows():
+    prompt = grading_prompt_template.format(reference=row["reference_response"],
+    generated=row["generated_response"]
+)
+# Send to LLM and get response
+llm_response = llm_client.invoke([HumanMessage(content-prompt)])
+# If the response is in markdown/code block, strip those 
+import re 
+response_content = llm_response.content.strip()
+response_content = re.sub(r"^'''json|'''$", "", response_content).strip()
+try:
+    eval_result = eval(response_content) # Or use Json.loads if safe
+except Exception:
+eval_result = {"grade": "Error", "justification": response_content}
+results.append({
+"patient_id": row["patient_id"],
+"grade": eval_result.get("grade", ""),
+"justification": eval_result.get("justification", "")
+# run prompt against agent response and human reference response and pass to LLM
+# Create a Datafrane with the grading results 
+df_results = pd.DataFrame(results)
+df_results
 
-submission_df = pd.DataFrame(results)[["patient_id", "generated_response"]]
-submission_df.to_csv("submission.csv", index=False)
+8:06
+And we plug in the reference response and the agent generated response for each of the validation patient records, store the results in a list, create a data frame out of that.
 
-print("\nsubmission.csv created successfully!")
-display(submission_df)
+8:16
+And you can see here, all of them are correct with detailed reason, which means our agent is working pretty well as expected.
+
+8:23
+And now we can submit our submission dot CSV by generating the response on the test patient records, which is our last step.
+
+8:31
+For that, we load up the test records dot Jason using Jason dot load.
+
+8:36
+That ends up giving us a list of 10 test patients.
+with open("Data/test_records.json") as f:
+    test_patients = json.load(f)
+
+8:39
+This is what one of them looks like, a dictionary.
+len(test_patients)
+
+test_patients[0]
+
+8:43
+We get the patient IDs from these test patients and then we run a for loop, convert every patient dictionary into a string, pass it into our agents saying evaluate this patient record, wait for it to complete, and store the results in a list.
+test_patient_ids = [patient["patient_id"] for patient in test_patients]
+test_patient_ids
+
+9:01
+Next we create a data frame out of this by passing in the list of patient IDs and the responses for each of these patient IDs.
+test_responses = []
+for patient in test_patients:
+    print(f'Processing for patient {patient["patient_id"])...'}
+    patient_record = str(patient) 
+    response = call_agent(agent,
+                        f"Evaluate this claim: (patient_record)",
+                        verbose=False)
+
+test_responses.append(response)
+
+9:12
+Remember to put the right column names as per the learner instructions which is patient_ID and generated_response.
+#use the right column name as per instructions
+submission_df = pd.Datafrane({
+    'patient_id': test_patient_ids,
+    'generated response': test_responses})
+
+
+9:18
+And then that gives us a submission data frame which looks like this with two columns patient ID with IDs ranging from S001 to S010 and the agent generated response for each of them.
+submission_df
+
+9:31
+As you can see you have everything in a single string.
+
+9:34
+Of course this is not the actual agent responses that is for you to do as a part of your assignment, but your format would look something very similar.
+
+9:43
+Once you have your submission dataframe, you can store it as a submission dot CSV file by just saying submission_DF .2 CSV, submission dot CSV and index equals false because we do not want to store the row numbers.
+# save in submission.csv
+submission_df.to_csv("submission.csv", # use the correct file name - submission.csv
+index False)
+
+9:57
+Once your submission dot CSV file is saved you can click and open it up and it would look something like this.
+
+10:03
+As you can see, we have two columns and 10 rows and overall for each row.
+
+10:08
+If your column does not have any commas in the content, it would just be the text.
+
+10:14
+However, if the content has some commas then it would be inside double quotes and as long as your format is something similar, you can actually validate it to make sure it's valid before submitting.
+
+10:29
+To do that, just go to your notebook, import the submission dot CSV, and if the data frame looks something like this with two columns, 10 rows, it should be good for submission.
+import pandas as pd
+df = pd.read_csv("submission.csv")
+df
+
+10:41
+Now let's look at the top submission issues which learners face when submitting Capstone 2 and how you can prevent them.
+
+10:48
+So these are the common validation issues with submissions, including misspelling or wrong column names in submission dot CSV, missing test patient IDs in submission dot CSV, submitting agent responses on the validation patient records instead of the test patient records.
+
+11:04
+Submission dot CSV having more columns or more rows than expected.
+
+11:08
+Wrong file submission format for submission dot CSV where a TSV was submitted instead of a CSV, and corrupted or unreadable files which could include either the code or the submission dot CSV file or both.
+
+11:21
+Now let's look at how each of these can be tackled.
+
+11:26
+Misspelling or wrong column names in submission CSV.
+
+11:28
+Make sure that you do not use wrong column names in the CSV.
+
+11:32
+They are case sensitive.
+
+11:33
+It is patient_ID and generated_response in lowercase.
+
+11:37
+These are also mentioned in your learner instructions.
+
+11:40
+Recommended to open your file as a dataframe and validate this before you submit.
+
+11:46
+Missing test patient ID's in submission dot CSV.
+
+11:49
+Sometimes submissions do not have all the 10 patient records, so make sure all 10 test patient ID responses are present in your submission dot CSV file.
+
+12:00
+Submitted agent response on validation instead of test CSV.
+
+12:04
+So there are 10 validation patient records.
+
+12:07
+Use them for evaluating and improving your agent.
+
+12:10
+Those are from P011 to P020.
+
+12:13
+Those are the patient IDs.
+
+12:14
+Do not submit agent responses on these patients in your submission CSV.
+
+12:20
+Make sure that you use the 10 test patient records ranging from S001 to South 010 and generate agent responses for these and submit this in your submission dot CSV.
+
+12:32
+Submission dot CSV had more columns than expected.
+
+12:35
+Sometimes learners end up submitting decision and reasoning in two separate columns.
+
+12:39
+Remember, everything should be in a single string and your final submission CSV should have two columns, Patient ID and generated response and this column should have both the decision and reasoning as a free flowing text.
+
+12:53
+Submission CSV had more rows than expected.
+
+12:55
+Sometimes learners end up submitting multiple rows or duplicated rows.
+
+13:00
+So instead of that, make sure that you have 10 unique rows for the 10 test patient IDs.
+
+13:06
+Wrong file submission format.
+
+13:08
+Sometimes learners end up submitting a tab separated file as you can see here, instead of a comma separated file.
+
+13:14
+So make sure that you submit submission dot CSV as a true, separated values file.
+
+13:21
+Corrupted or unreadable files.
+
+13:23
+Make sure to load up your notebook.
+
+13:25
+Check it out in the environment.
+
+13:27
+Load up your submission dot CSV in banders.
+
+13:30
+Make sure it's rendering before you submit your files, and hopefully this gives you a good idea of how to tackle Capstone 2.
