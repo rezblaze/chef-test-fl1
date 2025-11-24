@@ -1,20 +1,52 @@
-Your code fails because Databricks clusters on Azure do not have outbound internet access by default, so you cannot reach the OpenAI API endpoint. You should use Azure OpenAI instead, which is accessible from within Azure Databricks if your workspace is configured for it.
+Connecting to Azure OpenAI API
+Install the required libraries
+3
 
-Below is the fix: switch from ChatOpenAI to AzureChatOpenAI and set the required Azure environment variables. Also, never hardcode API keys; use Databricks secrets or environment variables.
+%run ./.setup/learner_setup
 
-%pythonimport osfrom langchain_openai import AzureChatOpenAI# Set these as Databricks secrets or environment variables, not in code!os.environ["AZURE_OPENAI_API_KEY"] = "<your-azure-openai-key>"os.environ["AZURE_OPENAI_ENDPOINT"] = "<your-azure-openai-endpoint>"  # e.g. https://<your-resource>.openai.azure.com/os.environ["AZURE_OPENAI_DEPLOYMENT_NAME"] = "<your-deployment-name>"llm = AzureChatOpenAI(    deployment_name=os.environ    ["AZURE_OPENAI_DEPLOYMENT_NA    ME"],    openai_api_key=os.environ    ["AZURE_OPENAI_API_KEY"],    openai_api_base=os.environ    ["AZURE_OPENAI_ENDPOINT"],    openai_api_version="2023-05-    15",  # or your API version    temperature=0)
+4
 
-Replace your current llm = ChatOpenAI(...) line with the above. The rest of your code can remain unchanged.
+import openaiimport osimport jsonimport httpxfrom dotenv import load_dotenvfrom tenacity import (    retry,    stop_after_attempt,    wait_random_exponential,)
 
-This change allows your code to use Azure OpenAI, which is accessible from within Azure Databricks if your workspace is configured for it. Please ensure you have provisioned an Azure OpenAI resource and deployment, and use Databricks secrets for sensitive values.
+Create model Client
+Below is the code to authenticate and establish the connection to the LLM in UAIS.
+6
 
+# Authentication:def get_access_token():    auth = "https://api.uhg.com/oauth2/token"    scope = "https://api.uhg.com/.default"    grant_type = "client_credentials"    with httpx.Client() as client:        body = {            "grant_type": grant_type,            "scope": scope,            "client_id": dbutils.secrets.get(scope="AIML_Training",             key="client_id"),            "client_secret": dbutils.secrets.get(scope="AIML_Training",             key="client_secret"),        }        headers = {"Content-Type": "application/x-www-form-urlencoded"}        resp = client.post(auth, headers=headers, data=body, timeout=60)        access_token = resp.json()["access_token"]        return access_tokenload_dotenv('./Data/UAIS_vars.env')endpoint = os.environ.get("MODEL_ENDPOINT")model_name = os.environ.get("MODEL_NAME")project_id = os.environ.get("PROJECT_ID")api_version = os.environ.get("API_VERSION")chat_client = openai.AzureOpenAI(        azure_endpoint=endpoint,        api_version=api_version,        azure_deployment=model_name,        azure_ad_token=get_access_token(),        default_headers={            "projectId": project_id        }    )
 
-APIConnectionError: Connection error.
-File /databricks/python/lib/python3.12/site-packages/httpcore/_exceptions.py:10, in map_exceptions(map)
-      9 try:
----> 10     yield
-     11 except Exception as exc:  # noqa: PIE786
-APIConnectionError: Connection error.
+Create a function to interact with the LLM
+Let us create a generic function to hit the LLM via API and get the responses, so that we can call this function for every task that we need to do. Let us use some of the parameters to set up the LLM. One can configure a few parameters to get different results for the prompts. Tweaking these settings are important to improve reliability and desirability of responses and it takes a bit of experimentation to figure out the proper settings for specific use cases. The parameters used in this code are:
+prompt_messages: The message that has to be passed to LLM as a prompt. This can be in JSON format and one can give multiple roles and content for each role.
+max_tokens: This is the maximum number of tokens the model can generate in a single response. The default value for GPT 4 is 4096. As we are using gpt-4o model, we will use this default value.
+temperature: The value of this parameter ranges from 0 to 2. Lower the temperature, the more deterministic the results in the sense that the highest probable next token is always picked. Increasing temperature could lead to more randomness, which encourages more diverse or creative outputs.
+top_p: The value of this parameter ranges from 0 to 1. If you are looking for exact and factual answers keep this low. If you are looking for more diverse responses, increase to a higher value.
+# We use an exponential backoff decorator in the event too # many users are using the model at once and rate limit is reached@retry(wait=wait_random_exponential(min=45, max=120), stop=stop_after_attempt(6))def query_llm(prompt_messages, max_tokens=4096, temperature=1.0, top_p=1.0):        response = chat_client.chat.completions.create(        messages=prompt_messages,        max_tokens=max_tokens,        temperature=temperature,        top_p=top_p,        model=model_name    )    return {'text': response.choices[0].message.content}
+
+Simple Query to LLM
+Let us test the connection by writing a simple query. When we write query message, it can be of a different role, which influences how the model may interpret the input. Following are the various roles:
+user: When user role is used, the message is treated as a request. It is similar to messages you would type in ChatGPT as an end user.
+developer: When developer role is used, the instructions given are prioritized ahead of user messages, following a chain of command. This role is going to instruct the model how it should behave and how it should respond to an end user. Older versions of LLMs had system as a role for the same purpose.
+assistant: assistant is for messages the model generated earlier. It can also be used to provide examples to the model for how it should respond to the current request.
+query = "List top 5 commonly used classification models used in machine learning"prompt_messages = [    {"role": "user", "content": query}]response = query_llm(prompt_messages)print(response['text'])
+
+Comments on model output:
+The user query to list 5 commonly used classification models in ML, is passed to LLM and LLM responds with 5 models.
+Please note that output of LLM is always non-deterministic, and the above output may vary for each execution. Also, if there is a change in LLM model (like gpt-4o-mini, gpt-3.5-turbo etc.), then there will be a variation in output display format as well.
+Prompt examples
+Example 1: Extract Keywords
+sample_text = """Reasoned about discharge summary sample for 11 secondsPatient admitted with community-acquired pneumonia received IV antibiotics with marked clinical improvement.Fever resolved and oxygenation normalized over a 5-day hospital stay.Discharge medications include oral azithromycin and supportive care instructions.Follow-up is scheduled in 1 week to reassess recovery."""prompt_messages=[        {"role": "developer", "content": "You will be provided with a         patient discharge summary, and your task is to extract keywords         from it"},        {"role": "user", "content": f"Extract keywords from this patient         discharge summary:{sample_text}"},      ]response = query_llm(prompt_messages)print(response['text'])
+
+Comments on model output:
+Based on the sample_text provided, the LLM could extract the keywords.
+The model was informed through developer role exactly what it should do and how it should behave.
+Note that, the keywords generated here may be displayed in a different order, when you run it. Also, if you use a different LLM model, then the outcome can be entirely different.
+Example 2: Parse the text and convert to structured output
+sample_text = """After reviewing the applicant’s recent medical records, lab results, and physician reports, the risk assessment indicates a low-risk profile with no significant pre-existing conditions. Standard coverage with typical premium rates is recommended. Final approval is contingent upon adherence to annual health monitoring requirements."""prompt_messages = [        {"role": "developer", "content": "You will be provided with         unstructured data, and your task is to parse it into proper JSON         format."},        {"role": "user", "content": f"Under-writing text:{sample_text}        "},            ]response = query_llm(prompt_messages)print(response['text'])
+
+Comments on model output:
+Observe that, the developer role has instructed the model to parse the data and provide the information in JSON format.
+This indicates that the model can behave like a programmer who understands the JSON format and can convert the unstructured data into JSON format.
+Note that, the exact JSON format may be displayed in a different manner, when you run it. Also, if you use a different LLM model, then the outcome can be entirely different.
 
 # =============================================================================
 # CAPSTONE 2 – Healthcare Insurance Claim Approval Agent
