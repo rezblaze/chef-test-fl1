@@ -1,218 +1,49 @@
-# =============================================================================
-# CAPSTONE 2 – Healthcare Insurance Claim Approval Agent
-# Fully working solution – tested November 2025
-# =============================================================================
+@retry(wait=wait_random_exponential(min=45, max=120), stop=stop_after_attempt(6))
+def query_llm(messages, temperature=0.0, max_tokens=4096):
+    print("\n" + "="*80)
+    print("CALLING AZURE OPENAI")
+    print("="*80)
+    print(f"MODEL          : {model_name}")
+    print(f"TEMPERATURE    : {temperature}")
+    print(f"MAX_TOKENS     : {max_tokens}")
+    print(f"STREAM         : False")
+    print(f"TIMEOUT        : 300")
+    print(f"MESSAGES COUNT : {len(messages)}")
+    print("-" * 80)
+    
+    for i, msg in enumerate(messages):
+        role = msg["role"].upper()
+        content_preview = str(msg["content"])[:500]
+        if len(str(msg["content"])) > 500:
+            content_preview += " [...]"
+        print(f"{role} [{i}]: {content_preview}")
+    print("="*80)
 
-import json
-from datetime import datetime
-from typing import List, Dict, Any
-import pandas as pd
-
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
-from langchain.tools import tool
-from langgraph.prebuilt import create_react_agent
-
-# ----------------------------------------------------------------------
-# 1. CONFIGURATION
-# ----------------------------------------------------------------------
-# Use the model that works in your environment
-llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)   # or "gpt-4.1-mini" if available
-
-# ----------------------------------------------------------------------
-# 2. LOAD DATASETS
-# ----------------------------------------------------------------------
-with open("insurance_policies.json", "r") as f:
-    policies = json.load(f)
-
-with open("reference_codes.json", "r") as f:
-    ref_codes = json.load(f)
-    icd10_map = ref_codes.get("icd10", {})
-    cpt_map = ref_codes.get("cpt", {})
-
-with open("validation_records.json", "r") as f:
-    validation_records = json.load(f)
-
-with open("test_records.json", "r") as f:
-    test_records = json.load(f)
-
-# ----------------------------------------------------------------------
-# 3. AGE CALCULATION (accurate, deterministic)
-# ----------------------------------------------------------------------
-def compute_age(dob: str, dos: str) -> int:
-    """Compute age on date_of_service using standard healthcare rule."""
-    birth = datetime.strptime(dob, "%Y-%m-%d")
-    service = datetime.strptime(dos, "%Y-%m-%d")
-    age = service.year - birth.year
-    if (service.month, service.day) < (birth.month, birth.day):
-        age -= 1
-    return age
-
-def add_age_to_records(records: List[Dict]) -> List[Dict]:
-    for r in records:
-        r["age"] = compute_age(r["date_of_birth"], r["date_of_service"])
-    return records
-
-validation_records = add_age_to_records(validation_records)
-test_records = add_age_to_records(test_records)
-
-# ----------------------------------------------------------------------
-# 4. TOOLS
-# ----------------------------------------------------------------------
-@tool
-def summarize_patient_record(record_str: str) -> str:
-    """Create a structured patient summary with 7 labeled sections."""
-    prompt = f"""
-You are an expert medical claims processor.
-Using the provided ICD-10 and CPT mappings below, create a clear summary with exactly these sections in order:
-
-• Patient Demographics
-• Insurance Policy ID
-• Diagnoses and Descriptions
-• Procedures and Descriptions
-• Preauthorization Status
-• Billed Amount (in USD)
-• Date of Service
-
-ICD-10 mappings (use these descriptions): {json.dumps(icd10_map, indent=2)}
-CPT mappings (use these descriptions): {json.dumps(cpt_map, indent=2)}
-
-Patient record (JSON string):
-{record_str}
-
-Return only the summary, no extra text.
-"""
-    response = llm.invoke(prompt)
-    return response.content
-
-@tool
-def summarize_policy_guideline(policy_id: str) -> str:
-    """Return a structured policy summary for the given policy_id."""
-    policy = next((p for p in policies if p["policy_id"] == policy_id), None)
-    if not policy:
-        return f"Policy {policy_id} not found."
-
-    prompt = f"""
-You are an insurance policy expert. Summarize the policy with these sections:
-
-• Policy Details
-• Covered Procedures (for each procedure include all sub-bullets exactly as shown)
-
-Use these descriptions:
-CPT map: {json.dumps(cpt_map, indent=2)}
-ICD-10 map: {json.dumps(icd10_map, indent=2)}
-
-Policy JSON:
-{json.dumps(policy, indent=2)}
-
-Return only the summary in clean markdown.
-"""
-    response = llm.invoke(prompt)
-    return response.content
-
-@tool
-def check_claim_coverage(record_summary: str, policy_summary: str) -> str:
-    """Perform detailed coverage validation and return Coverage Review + Summary of Findings + Final Decision."""
-    prompt = f"""
-You are a senior claims adjudicator. Evaluate coverage using ONLY the information below.
-
-Patient Summary:
-{record_summary}
-
-Policy Summary:
-{policy_summary}
-
-There is exactly ONE procedure per claim.
-
-Check these criteria strictly:
-1. Diagnosis code(s) must exactly match covered diagnoses for the procedure
-2. Procedure code must be listed
-3. Patient age must be >= lower bound and < upper bound of age_range
-4. Gender must match (Any = no restriction)
-5. If preauthorization required → must be obtained
-
-Output exactly these three sections:
-
-• Coverage Review (step-by-step)
-• Summary of Findings
-• Final Decision: APPROVE or ROUTE FOR REVIEW (with short reason)
-
-Do not hallucinate any data.
-"""
-    response = llm.invoke(prompt)
-    return response.content
-
-tools = [summarize_patient_record, summarize_policy_guideline, check_claim_coverage]
-
-# ----------------------------------------------------------------------
-# 5. SYSTEM PROMPT (forces exact sequence and final format)
-# ----------------------------------------------------------------------
-system_prompt = """
-You are an expert Healthcare Insurance Claim Approval Agent.
-You have exactly three tools and must use them in this exact order:
-
-1. Call summarize_patient_record with the full patient record (as string)
-2. Extract the policy_id from the patient summary and call summarize_policy_guideline
-3. Call check_claim_coverage with both summaries
-
-After receiving the result from check_claim_coverage, produce the FINAL answer in this exact format:
-
-Decision: APPROVE  
-Reason: <concise, specific reason referencing policy rules, patient data, and why all criteria are met or not>
-
-OR
-
-Decision: ROUTE FOR REVIEW  
-Reason: <concise reason why at least one criterion failed, quoting the failing rule>
-
-The Decision line must be exactly "Decision: APPROVE" or "Decision: ROUTE FOR REVIEW".
-Do not add extra headings, explanations, or text outside these two lines.
-"""
-
-# ----------------------------------------------------------------------
-# 6. CREATE THE ReAct AGENT
-# ----------------------------------------------------------------------
-react_agent = create_react_agent(
-    llm,
-    tools,
-    state_modifier=SystemMessage(content=system_prompt)
-)
-
-def run_agent_on_record(patient_record: Dict) -> str:
-    record_str = json.dumps(patient_record, indent=2)
-    input_message = {"messages": [HumanMessage(content=f"Evaluate this claim:\n{record_str}")]}
-    result = react_agent.invoke(input_message)
-    # The final message from the agent is the last AIMessage
-    final_answer = result["messages"][-1].content.strip()
-    return final_answer
-
-# ----------------------------------------------------------------------
-# 7. VALIDATION (optional but highly recommended)
-# ----------------------------------------------------------------------
-print("Running validation on validation_records...")
-validation_results = []
-for rec in validation_records:
-    resp = run_agent_on_record(rec)
-    validation_results.append({"patient_id": rec["patient_id"], "generated_response": resp})
-    print(f"{rec['patient_id']}: {resp.splitlines()[0] if resp else ''}")
-
-# ----------------------------------------------------------------------
-# 8. GENERATE SUBMISSION.CSV FOR TEST RECORDS
-# ----------------------------------------------------------------------
-print("\nGenerating submission for test_records...")
-test_results = []
-for rec in test_records:
-    resp = run_agent_on_record(rec)
-    test_results.append({"patient_id": rec["patient_id"], "generated_response": resp})
-
-submission_df = pd.DataFrame(test_results)
-submission_df = submission_df[["patient_id", "generated_response"]]  # exact column order
-submission_df.to_csv("submission.csv", index=False)
-
-print("\nsubmission.csv created successfully!")
-print(submission_df)
-
-# Quick check
-print("\nFirst few rows of submission.csv:")
-print(pd.read_csv("submission.csv").head(10))
+    try:
+        response = chat_client.chat.completions.create(
+            messages=messages,
+            model=model_name,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            top_p=1.0,
+            stream=False,
+            timeout=300
+        )
+        content = response.choices[0].message.content
+        if content is None:
+            content = "[EMPTY CONTENT RETURNED]"
+        
+        print("RESPONSE RECEIVED")
+        print(f"Content length: {len(content)} characters")
+        print("-" * 80)
+        print(content[:1000])
+        if len(content) > 1000:
+            print("... [truncated]")
+        print("="*80 + "\n")
+        
+        return content.strip()
+        
+    except Exception as e:
+        print(f"EXCEPTION IN query_llm: {type(e).__name__}: {e}")
+        print("="*80 + "\n")
+        return "[query_llm failed – routed for review]")
