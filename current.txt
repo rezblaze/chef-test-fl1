@@ -1,3 +1,21 @@
+
+print("Generating submission for test records...")results = []for patient in test_records:    print(f"Processing {patient['patient_id']}...")    resp = call_agent(patient)    results.append({        "patient_id": patient["patient_id"],        "generated_response": resp    })submission_df = pd.DataFrame(results)[["patient_id", "generated_response"]]submission_df.to_csv("submission.csv", index=False)print("\nsubmission.csv is ready!")display(submission_df)
+
+Generating submission for test records...
+Processing S001...
+
+RetryError: RetryError[<Future at 0x7f87a7929dc0 state=finished raised TypeError>]
+File /local_disk0/.ephemeral_nfs/envs/pythonEnv-66dbeb1f-bfa4-4b7d-a39d-9e0cba132403/lib/python3.12/site-packages/tenacity/__init__.py:478, in Retrying.__call__(self, fn, *args, **kwargs)
+    477 try:
+--> 478     result = fn(*args, **kwargs)
+    479 except BaseException:  # noqa: B902
+File /local_disk0/.ephemeral_nfs/envs/pythonEnv-66dbeb1f-bfa4-4b7d-a39d-9e0cba132403/lib/python3.12/site-packages/tenacity/__init__.py:419, in BaseRetrying._post_stop_check_actions.<locals>.exc_check(rs)
+    417 if self.reraise:
+    418     raise retry_exc.reraise()
+--> 419 raise retry_exc from fut.exception()
+
+
+
 # =============================================================================
 # CAPSTONE 2 – FINAL WORKING SOLUTION (UHG Databricks Serverless + UAIS)
 # 100% matches the submission guide video → 12/12 Excellent
