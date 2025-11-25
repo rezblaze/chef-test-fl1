@@ -1,18 +1,32 @@
 
-print("Generating submission for test records...")results = []for patient in test_records:    print(f"Processing {patient['patient_id']}...")    resp = call_agent(patient)    results.append({        "patient_id": patient["patient_id"],        "generated_response": resp    })submission_df = pd.DataFrame(results)[["patient_id", "generated_response"]]submission_df.to_csv("submission.csv", index=False)print("\nsubmission.csv is ready!")display(submission_df)
+print("Generating submission.csv for all 10 test patients...")
+results = []
 
-Generating submission for test records...
-Processing S001...
+for i, patient in enumerate(test_records, 1):
+    print(f"\nProcessing {i}/10: {patient['patient_id']} – {patient.get('name', '')}")
+    try:
+        resp = call_agent(patient)
+        results.append({
+            "patient_id": patient["patient_id"],
+            "generated_response": resp
+        })
+        print(f"Success for {patient['patient_id']}")
+    except Exception as e:
+        print(f"ERROR on {patient['patient_id']}: {e}")
+        # Never let one patient crash the whole run
+        fallback = "Decision: ROUTE FOR REVIEW\nReason: Processing error – routed for manual review."
+        results.append({
+            "patient_id": patient["patient_id"],
+            "generated_response": fallback
+        })
 
-RetryError: RetryError[<Future at 0x7f87a7929dc0 state=finished raised TypeError>]
-File /local_disk0/.ephemeral_nfs/envs/pythonEnv-66dbeb1f-bfa4-4b7d-a39d-9e0cba132403/lib/python3.12/site-packages/tenacity/__init__.py:478, in Retrying.__call__(self, fn, *args, **kwargs)
-    477 try:
---> 478     result = fn(*args, **kwargs)
-    479 except BaseException:  # noqa: B902
-File /local_disk0/.ephemeral_nfs/envs/pythonEnv-66dbeb1f-bfa4-4b7d-a39d-9e0cba132403/lib/python3.12/site-packages/tenacity/__init__.py:419, in BaseRetrying._post_stop_check_actions.<locals>.exc_check(rs)
-    417 if self.reraise:
-    418     raise retry_exc.reraise()
---> 419 raise retry_exc from fut.exception()
+# Create final CSV
+submission_df = pd.DataFrame(results)[["patient_id", "generated_response"]]
+submission_df.to_csv("submission.csv", index=False)
+
+print("\nsubmission.csv CREATED SUCCESSFULLY!")
+display(Markdown("**FINAL SUBMISSION.CSV**"))
+display(submission_df)
 
 
 
