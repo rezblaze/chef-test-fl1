@@ -1,29 +1,16 @@
 
-print("Generating submission.csv for all 10 test patients...")
-results = []
 
-for i, patient in enumerate(test_records, 1):
-    pid = patient["patient_id"]
-    print(f"\nProcessing {i}/10: {pid} – {patient.get('name', 'Unknown')}")
-    
-    try:
-        resp = call_agent(patient)
-        if not resp or "Decision:" not in resp:
-            raise Exception("Invalid response format")
-        results.append({"patient_id": pid, "generated_response": resp})
-        print(f"SUCCESS: {pid}")
-    except Exception as e:
-        print(f"FAILED: {pid} → Using safe fallback")
-        fallback = "Decision: ROUTE FOR REVIEW\nReason: System error during processing – routed for manual review to ensure compliance."
-        results.append({"patient_id": pid, "generated_response": fallback})
+print("Generating submission.csv for all 10 test patients...")results = []for i, patient in enumerate(test_records, 1):    pid = patient["patient_id"]    print(f"\nProcessing {i}/10: {pid} – {patient.get('name', 'Unknown')}")        try:        resp = call_agent(patient)        if not resp or "Decision:" not in resp:            raise Exception("Invalid response format")        results.append({"patient_id": pid, "generated_response": resp})        print(f"SUCCESS: {pid}")    except Exception as e:        print(f"FAILED: {pid} → Using safe fallback")        fallback = "Decision: ROUTE FOR REVIEW\nReason: System error during         processing – routed for manual review to ensure compliance."        results.append({"patient_id": pid, "generated_response": fallback})# Final CSVsubmission_df = pd.DataFrame(results)[["patient_id", "generated_response"]]submission_df.to_csv("submission.csv", index=False)print("\nsubmission.csv CREATED SUCCESSFULLY!")display(Markdown("**FINAL SUBMISSION.CSV**"))display(submission_df)
 
-# Final CSV
-submission_df = pd.DataFrame(results)[["patient_id", "generated_response"]]
-submission_df.to_csv("submission.csv", index=False)
+Generating submission.csv for all 10 test patients...
 
-print("\nsubmission.csv CREATED SUCCESSFULLY!")
-display(Markdown("**FINAL SUBMISSION.CSV**"))
-display(submission_df)
+Processing 1/10: S001 – Michael Lee
+FAILED: S001 → Using safe fallback
+
+Processing 2/10: S002 – Liam Patel
+FAILED: S002 → Using safe fallback
+
+Processing 3/10: S003 – Emily Davis
 
 
 # =============================================================================
