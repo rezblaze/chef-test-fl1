@@ -1,32 +1,13 @@
 
-print("Generating submission.csv for all 10 test patients...")
-results = []
 
-for i, patient in enumerate(test_records, 1):
-    print(f"\nProcessing {i}/10: {patient['patient_id']} – {patient.get('name', '')}")
-    try:
-        resp = call_agent(patient)
-        results.append({
-            "patient_id": patient["patient_id"],
-            "generated_response": resp
-        })
-        print(f"Success for {patient['patient_id']}")
-    except Exception as e:
-        print(f"ERROR on {patient['patient_id']}: {e}")
-        # Never let one patient crash the whole run
-        fallback = "Decision: ROUTE FOR REVIEW\nReason: Processing error – routed for manual review."
-        results.append({
-            "patient_id": patient["patient_id"],
-            "generated_response": fallback
-        })
+print("Generating submission.csv for all 10 test patients...")results = []for i, patient in enumerate(test_records, 1):    print(f"\nProcessing {i}/10: {patient['patient_id']} – {patient.get('name',     '')}")    try:        resp = call_agent(patient)        results.append({            "patient_id": patient["patient_id"],            "generated_response": resp        })        print(f"Success for {patient['patient_id']}")    except Exception as e:        print(f"ERROR on {patient['patient_id']}: {e}")        # Never let one patient crash the whole run        fallback = "Decision: ROUTE FOR REVIEW\nReason: Processing error – routed         for manual review."        results.append({            "patient_id": patient["patient_id"],            "generated_response": fallback        })# Create final CSVsubmission_df = pd.DataFrame(results)[["patient_id", "generated_response"]]submission_df.to_csv("submission.csv", index=False)print("\nsubmission.csv CREATED SUCCESSFULLY!")display(Markdown("**FINAL SUBMISSION.CSV**"))display(submission_df)
 
-# Create final CSV
-submission_df = pd.DataFrame(results)[["patient_id", "generated_response"]]
-submission_df.to_csv("submission.csv", index=False)
+Generating submission.csv for all 10 test patients...
 
-print("\nsubmission.csv CREATED SUCCESSFULLY!")
-display(Markdown("**FINAL SUBMISSION.CSV**"))
-display(submission_df)
+Processing 1/10: S001 – Michael Lee
+ERROR on S001: RetryError[<Future at 0x7f87a76162a0 state=finished raised TypeError>]
+
+Processing 2/10: S002 – Liam Patel
 
 
 
